@@ -9,3 +9,4 @@ Data platform for the [LifeWatch Romania](https://lifewatch.ro) project.
 - [PostGIS](https://postgis.net/) &mdash; Postgres extension adding support for spatial / geographics data.
   - [PostGIS Getting Started](https://postgis.net/documentation/getting_started/)
   - [Introduction to PostGIS workshop](https://postgis.net/workshops/postgis-intro/)
+- [Timescale](https://www.timescale.com/) &mdash; Postgres extension adding support for large-scale time series data.
