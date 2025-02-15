@@ -10,3 +10,8 @@ Data platform for the [LifeWatch Romania](https://lifewatch.ro) project.
   - [PostGIS Getting Started](https://postgis.net/documentation/getting_started/)
   - [Introduction to PostGIS workshop](https://postgis.net/workshops/postgis-intro/)
 - [Timescale](https://www.timescale.com/) &mdash; Postgres extension adding support for large-scale time series data.
+- [openEO](https://openeo.org/) &mdash; Open API for accessing large Earth Observation (EO) datasets.
+- [Copernicus Dataspace](https://dataspace.copernicus.eu/) &mdash; Provides programmatic access to data from the Copernicus mission.
+  - [openEO access homepage](https://dataspace.copernicus.eu/analyse/openeo)
+  - [openEO API docs](https://documentation.dataspace.copernicus.eu/APIs/openEO/openEO.html)
+  - [openEO Web Editor](https://openeo.dataspace.copernicus.eu/)
