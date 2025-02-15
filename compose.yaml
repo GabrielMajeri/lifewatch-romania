@@ -1,0 +1,18 @@
+services:
+  database:
+    image: "timescale/timescaledb-ha:pg17"
+    ports:
+      - "5432:5432"
+    # Increase shared memory size limit
+    shm_size: 128MB
+    volumes:
+      - postgres-data:/home/postgres/pgdata/data
+    environment:
+      POSTGRES_USER: "dev"
+      POSTGRES_PASSWORD: "pwd"
+      POSTGRES_DB: "lifewatch"
+      TS_TUNE_NUM_CPUS: 1
+      TS_TUNE_MEMORY: 1GB
+
+volumes:
+  postgres-data:
