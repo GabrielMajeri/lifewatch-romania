@@ -1,0 +1,5 @@
+{
+  "editor.formatOnSave": true,
+  "basedpyright.analysis.typeCheckingMode": "off",
+  "ruff.enable": true
+}
