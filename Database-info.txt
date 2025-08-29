@@ -1,0 +1,80 @@
+Stație
+Fiecare stație reprezintă o grupare integrată de senzori.
+ID stație - număr unic, persistent
+Denumire stație (ex.: Brașov, Insula Mare a Brăilei, Polizești, Stația 1/2/3)
+Creată la: data (eventual și timpul) la care a fost pornită această stație de senzori (și înregistrată în baza de date)
+Modificată ultima dată la: ultima dată (și timpul) la care s-au efectuat modificări în baza de date la această stație
+Tip de senzor
+O enumerare a tipurilor cunoscute de senzori (sau de stații, dacă e vorba de niște senzori integrați în aceeași unitate):
+ID tip de senzor
+Denumire: weather station, eddy covariance, CUV5 Total UV Radiometer, RaZON+, Cosmic Ray Neutron, Buoy
+Parametru măsurabil
+Reprezintă o valoare fizică care poate fi măsurată.
+ID parametru
+Denumire (exemplu: temperatura medie a aerului, umiditatea medie a aerului, flux CO2, etc)
+Unitate de măsură (string): exemplu:
+Mean air temperature: °C
+CO2 flux - µmol/m²s
+Flag valoare parametru (daca limitele de msurare ale senzorului sunt depasite, calculat, măsurat direct)
+Senzori
+Senzorii prezenți pe fiecare stație influențează datele care se pot colecta de acolo.
+ID senzor (cod numeric unic)
+ID stație părinte
+Senzor
+Tip senzor
+Eventual alte metadate - model, furnizor, observații/limitări etc.
+Model
+manufacturer
+serial number
+install_date
+decomission_date
+status - ‘active', 'inactive', 'calibration_needed'
+note
+
+Join între Senzor și Parametri măsurați
+Acest join table corelează tipurile de senzori cunoscute cu parametrii pe care aceștia îi pot măsura.
+
+
+Exemplu de conținut:
+Weather station: air temp, precipitation, air pressure, soil temperature, snow depth, irradiance, wind speed and direction, visibility, relative humidity 
+Eddy covariance: eddy covariance CO2/CH4, storage fluxes, air meteorological, soil parameters
+Buoy: wave parameters, turbidity, water temperature
+Poziții stații
+Stațiile se pot deplasa în timp, așa că aici ar trebui să înregistrăm cea mai nouă poziție a lor. Dacă nu se înregistrează nicio poziție nouă, înseamnă că de la ultima înregistrare și până în prezent, stația a rămas nemișcată.
+ID stație
+Data modificării / înregistrării poziției
+Poziție (latitudine / longitudine)
+Județ și localitate - opțional dar recomandat
+Eventual putem avea două tabele cu județele și localitățile din România
+Data actualizare pozitie statie (poziția se poate mdifica în timp)
+
+Pentru majoritatea stațiilor (pentru toate, de fapt, în momentul de față) vom avea decât o singură înregistrare: poziția stației respective, din momentul în care a fost pusă în funcțiune.
+Rezoluții temporale stații
+Cât de des pot să transmită date senzorii de pe stațiile asociate, prin urmare și până la ce rezoluție se pot afișa graficele cu aceste date.
+ID stație
+Perioada de măsurare
+30 de minute (e.g. pentru eddy covariance)
+1 oră (stațiile meteo)
+24 de ore (stațiile meteo)
+Join între Stații și Rezoluții temporale
+O tabelă care îmbină stațiile cu rezoluțiile temporale la care pot raporta date.
+Măsurători
+Tabelul principal care conține concret datele de tip „timeseries” / măsurătorile de la senzori.
+ID înregistrare - număr unic generat de baza de date la insert
+ID senzor
+ID parametru măsurabil
+La insert, baza de date verifică integritatea referențială - nu se poate insera o înregistrare pentru un parametru măsurabil dacă acest tip de senzor nu declară că poate înregistra și astfel de date.
+Timestamp - momentul colectării acestei înregistrări de către senzor
+Dacă avem senzori care nu oferă această informație, atunci vom folosi în schimb momentul la care am primit datele și le-am băgat în BD.
+Valoare (număr) - de decis dacă vrem float sau double (sau alt tip numeric)
+quality_flag - poate fi un cod: 0 (bun), 1 (suspect), 2 (invalid), 3 (estimat) - se poate crea și o tabelă separată quality_flags pentru a descrie codurile.
+
+
+Tabela nou: calibrare/întreținere senzori
+Acuratețea datelor depinde de calibrarea senzorilor.
+
+
+ID senzor
+calibration_date
+calibrated_by -   numele persoanei/companiei care a efectuat calibrarea
+calibration_details -  coeficienții, certificatul de calibrare, note etc.
