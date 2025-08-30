@@ -1,0 +1,16 @@
+[build-system]
+requires = ["hatchling >= 1.26"]
+build-backend = "hatchling.build"
+
+[project]
+name = "lifewatch"
+version = "0.1.0"
+authors = [{ name = "Gabriel Majeri", email = "gabriel.majeri6@gmail.com" }]
+readme = "README.md"
+
+requires-python = ">= 3.13"
+
+dependencies = ["SQLAlchemy", "psycopg"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/lifewatch"]
