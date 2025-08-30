@@ -1,5 +1,12 @@
-# Ignore downloaded/generated geospatial image files
-*.tiff
+# This file is used to tell Git which files to exclude from version control.
+# See also https://docs.github.com/en/get-started/git-basics/ignoring-files
+
+# Ignore Python bytecode cache files
+**/__pycache__/
+*.pyc
 
 # Ignore MacOS cache files
 .DS_Store
+
+# Ignore downloaded/generated geospatial image files
+*.tiff
