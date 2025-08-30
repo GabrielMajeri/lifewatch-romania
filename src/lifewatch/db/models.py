@@ -10,6 +10,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
     select,
+    text,
 )
 from sqlalchemy.event import listens_for
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -67,13 +68,24 @@ class Measurement(Base):
 
 @listens_for(Base.metadata, "after_create")
 def configure_hypertables(target: MetaData, connection: Connection, **kw):
-    # Convert Measurements to a TigerData/TimeScaleDB hypertable
-    # connection.execute(select(func.now()))
-
+    # Convert `Measurements` to a TigerData hypertable
     stmt = select(
         func.create_hypertable(
             Measurement.__tablename__,
             func.by_range("timestamp", func.cast("1 day", Interval)),
         )
+    )
+    connection.execute(stmt)
+
+    # Enable columnstore
+    stmt = text(f"""ALTER TABLE {Measurement.__tablename__} SET (
+        tsdb.enable_columnstore = true,
+        tsdb.segmentby = 'sensor_id, variable_id'
+    );""")
+    connection.execute(stmt)
+
+    # Add a columnstore policy
+    stmt = text(
+        f"CALL add_columnstore_policy('{Measurement.__tablename__}', after => INTERVAL '1 day')"
     )
     connection.execute(stmt)
