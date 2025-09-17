@@ -1,7 +1,7 @@
-"""Changed schema with varaible instead of parameter and mapped-column.
+"""Changed schema with variable instead of parameter and mapped-column.
 
 Revision ID: b0d7b1a2d1a6
-Revises: 
+Revises:
 Create Date: 2025-09-16 19:37:01.388562
 
 """
