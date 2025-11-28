@@ -1,0 +1,6 @@
+name,units,description,extra
+CO2 concentration,"mmol CO_{2} m^{-3}",CO2 concentration density,"{ ""icos_label"": ""CO2_CONC"" }"
+CO2 molar fraction,"umol CO2 mol^{-1}",CO2 molar fraction (in humid air),"{ ""icos_label"": ""CO2"" }"
+CO2 mass density,"mg CO_{2} m^{-3}",,"{ ""icos_label"": ""CO2_MASS"" }"
+H2O mass density,"g H_{2}O m^{-3}",,"{ ""icos_label"": ""H2O_MASS"" }"
+CO2 absorptance,adimensional,,"{ ""icos_label"": ""CO2_ABS"" }"

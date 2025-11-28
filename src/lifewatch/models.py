@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import final
+from typing import Any, final
 
 from sqlalchemy import (
     Connection,
@@ -31,14 +31,15 @@ class TimestampsMixin:
 
 @final
 class Station(Base, TimestampsMixin):
-    """Represents a real-life ensemble of sensors (a sensor station/pack),
-    usually soldered to the same support structure.
+    """Represents a real-life ensemble of sensors (a sensor station),
+    installed together in the same location.
     """
 
     __tablename__ = "stations"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(nullable=False)
+    extra: Mapped[dict[str, Any]] = mapped_column(nullable=False, default={})
 
     sensors: Mapped[list["Sensor"]] = relationship(back_populates="station")
 
@@ -47,13 +48,15 @@ class Station(Base, TimestampsMixin):
     )
 
 
+@final
 class SensorType(Base, TimestampsMixin):
-    """Uniquely identifies a type of sensor."""
+    """Uniquely identifies a type (model) of sensor."""
 
     __tablename__ = "sensor_types"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(unique=True, nullable=False)
+    description: Mapped[str] = mapped_column(nullable=False, default="")
 
     __table_args__: tuple[Constraint] = (
         UniqueConstraint("name", name="sensor_types_name_unique"),
@@ -69,11 +72,18 @@ class Sensor(Base, TimestampsMixin):
     sensor_type_id: Mapped[int] = mapped_column(
         ForeignKey(SensorType.id), nullable=False
     )
-    name: Mapped[str] = mapped_column(String)
+    name: Mapped[str] = mapped_column(String, nullable=False, default="")
     serial_number: Mapped[str] = mapped_column(nullable=False)
 
+    station: Mapped[Station] = relationship(back_populates="sensors")
+    measurements: Mapped["Measurement"] = relationship(back_populates="sensor")
+
     __table_args__: tuple[Constraint] = (
-        UniqueConstraint("name", name="sensors_name_unique"),
+        UniqueConstraint(
+            "sensor_type_id",
+            "serial_number",
+            name="sensors_serial_number_unique_per_type",
+        ),
     )
 
 
@@ -82,19 +92,25 @@ class Variable(Base, TimestampsMixin):
     __tablename__ = "variables"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    # Machine-readable label used to uniquely identify this variable,
-    # similar to what ICOS does (e.g. `CO2_CONC`)
-    label: Mapped[str] = mapped_column(String, nullable=False)
     # Human-readable name (e.g. `CO2 concentration`)
     name: Mapped[str] = mapped_column(String, nullable=False)
     # Longer description of this variable
     description: Mapped[str] = mapped_column(String, default="")
-    unit: Mapped[str] = mapped_column(String, nullable=False)
+    units: Mapped[str] = mapped_column(String, nullable=False)
+
+    extra: Mapped[dict[str, Any]] = mapped_column(nullable=False, default={})
+
+    measurements: Mapped["Measurement"] = relationship(back_populates="variable")
 
     __table_args__: tuple[Constraint, ...] = (
-        UniqueConstraint("label", name="variables_label_unique"),
         UniqueConstraint("name", name="variables_name_unique"),
     )
+
+    def icos_label(self) -> str | None:
+        """Machine-readable label used to uniquely identify this variable,
+        as defined by ICOS (e.g. `CO2_CONC`).
+        """
+        return self.extra.get("icos_label", None)
 
 
 @final
@@ -114,13 +130,14 @@ class Measurement(Base):
 
 @listens_for(Base.metadata, "after_create")
 def configure_hypertables(target: MetaData, connection: Connection, **kw):
-    stmt = text(
-        f"SELECT 1 FROM timescaledb_information.hypertables WHERE hypertable_name = '{Measurement.__tablename__}'"
-    )
-    result = connection.execute(stmt)
-    if len(result.all()) > 0:
-        print(f"Table '{Measurement.__tablename__}' is already a hypertable")
-        return
+    if kw.get("checkfirst", False) == True:
+        stmt = text(
+            f"SELECT 1 FROM timescaledb_information.hypertables WHERE hypertable_name = '{Measurement.__tablename__}'"
+        )
+        result = connection.execute(stmt)
+        if len(result.all()) > 0:
+            # print(f"Table '{Measurement.__tablename__}' is already a hypertable")
+            return
 
     # Convert `Measurements` to a TigerData hypertable
     stmt = select(
