@@ -227,6 +227,10 @@ def import_data_from_ghg_file(station_id: int, ghg_file_path: Path):
                     if counter % 256 == 0:
                         session.commit()
 
+            print(
+                f"Succesfully imported {counter} rows, each with {len(column_name_to_variable_id_mapping.keys())} variables"
+            )
+
 
 if __name__ == "__main__":
     with DataCollectorClient() as client:
