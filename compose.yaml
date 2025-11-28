@@ -1,6 +1,6 @@
 services:
   database:
-    image: "timescale/timescaledb-ha:pg17"
+    image: "timescale/timescaledb-ha:pg18"
     ports:
       - "5432:5432"
     # Increase shared memory size limit

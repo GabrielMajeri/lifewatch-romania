@@ -1,0 +1,15 @@
+[build-system]
+requires = ["hatchling >= 1.26"]
+build-backend = "hatchling.build"
+
+[project]
+name = "lifewatch"
+version = "0.1.0"
+dependencies = ["SQLAlchemy>=2", "psycopg2>=2.9"]
+requires-python = ">= 3.13"
+
+[project.scripts]
+lifewatch-seed = "lifewatch.seed:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/lifewatch"]
