@@ -5,11 +5,17 @@ build-backend = "hatchling.build"
 [project]
 name = "lifewatch"
 version = "0.1.0"
-dependencies = ["SQLAlchemy>=2", "psycopg2>=2.9", "paramiko>=4", "tqdm>=4"]
+dependencies = [
+    "SQLAlchemy>=2",
+    "psycopg2>=2.9",
+    "alembic>=1",
+    "typer>=0.20",
+    "python-dotenv>=1.2",
+]
 requires-python = ">= 3.13"
 
 [project.scripts]
-lifewatch-seed = "lifewatch.seed:main"
+lifewatch-db = "lifewatch.cli:app"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/lifewatch"]

@@ -7,13 +7,13 @@ import re
 from tempfile import gettempdir
 from zipfile import ZipFile
 
+from dotenv import load_dotenv
 from paramiko import Ed25519Key, SFTPClient, SSHClient, PKey
 from sqlalchemy import literal, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 from tqdm.contrib import tenumerate
 
-from lifewatch.db import engine
 from lifewatch.models import Measurement, Sensor, SensorType, Station, Variable
 
 
@@ -233,6 +233,15 @@ def import_data_from_ghg_file(station_id: int, ghg_file_path: Path):
 
 
 if __name__ == "__main__":
+    load_dotenv()
+
+    DATABASE_URL = getenv("DATABASE_URL", "")
+
+    if not DATABASE_URL:
+        raise ValueError("Environment variable `DATABASE_URL` is not set")
+
+    engine = create_engine(DATABASE_URL)
+
     with DataCollectorClient() as client:
         # Download the remote data file to a local temporary file
         client.sftp_client.chdir("icos")

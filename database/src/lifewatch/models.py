@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import Any, final
 
 from sqlalchemy import (
+    JSON,
     Connection,
     Constraint,
     DateTime,
@@ -15,11 +16,18 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.event import listens_for
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 from sqlalchemy.sql.functions import now
 
-from .db import Base
+
+class Base(DeclarativeBase):
+    type_annotation_map = {
+        # Add support for JSON columns (for storing entity metadata).
+        #
+        # Based on https://stackoverflow.com/a/75678968
+        dict[str, Any]: JSON
+    }
 
 
 class TimestampsMixin:
@@ -131,7 +139,7 @@ class Measurement(Base):
 
 @listens_for(Base.metadata, "after_create")
 def configure_hypertables(target: MetaData, connection: Connection, **kw):
-    if kw.get("checkfirst", False) == True:
+    if kw.get("checkfirst", False):
         stmt = text(
             f"SELECT 1 FROM timescaledb_information.hypertables WHERE hypertable_name = '{Measurement.__tablename__}'"
         )
