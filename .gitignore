@@ -1,9 +1,2 @@
-# Ignore downloaded/generated geospatial image files
-*.tiff
-
 # Ignore MacOS cache files
 .DS_Store
-
-# Ignore Python bytecode cache files
-__pycache__/
-*.py[co]
