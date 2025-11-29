@@ -122,6 +122,7 @@ class Measurement(Base):
     timestamp: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), primary_key=True
     )
+    nanoseconds: Mapped[int] = mapped_column(nullable=False, default=0)
     value: Mapped[float] = mapped_column(nullable=False)
 
     sensor: Mapped[Sensor] = relationship(back_populates="measurements")

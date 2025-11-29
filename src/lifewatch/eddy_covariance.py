@@ -198,7 +198,6 @@ def import_data_from_ghg_file(station_id: int, ghg_file_path: Path):
                     # print(f"Row #{index + 1}:")
 
                     timestamp = int(row["Seconds"])
-
                     nanoseconds = int(row["Nanoseconds"])
                     microseconds = round(nanoseconds / 1e3)
 
@@ -217,6 +216,7 @@ def import_data_from_ghg_file(station_id: int, ghg_file_path: Path):
                                 sensor_id=sensor_id,
                                 variable_id=variable_id,
                                 timestamp=timestamp,
+                                nanoseconds=nanoseconds,
                                 value=value,
                             )
                             .on_conflict_do_nothing()
