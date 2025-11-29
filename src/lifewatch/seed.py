@@ -1,4 +1,5 @@
 import csv
+import json
 from pathlib import Path
 import traceback
 from typing import Any
@@ -29,12 +30,25 @@ def read_csv_seed_file(name: str) -> list[dict[str, Any]]:
         return list(reader)
 
 
+def convert_json_column_to_dict(
+    data: list[dict[str, Any]], column_name: str
+) -> list[dict[str, Any]]:
+    return [
+        {
+            name: json.loads(value) if name == column_name else value
+            for name, value in row.items()
+        }
+        for row in data
+    ]
+
+
 def seed_initial_data():
     print("Ensuring seed data exists in database")
 
     with Session(engine) as session:
         # Import variables
         variables_data = read_csv_seed_file("variables.csv")
+        variables_data = convert_json_column_to_dict(variables_data, "extra")
         _ = session.execute(
             insert(Variable).on_conflict_do_nothing(index_elements=["name"]),
             variables_data,
@@ -42,6 +56,7 @@ def seed_initial_data():
 
         # Import stations
         stations_data = read_csv_seed_file("stations.csv")
+        stations_data = convert_json_column_to_dict(stations_data, "extra")
         _ = session.execute(
             insert(Station).on_conflict_do_nothing(index_elements=["name"]),
             stations_data,
