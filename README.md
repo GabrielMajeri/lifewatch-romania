@@ -1,6 +1,6 @@
-# LifeWatch
+# Lifewatch
 
-Data platform for the [LifeWatch Romania](https://lifewatch.ro) project.
+Data platform for the Romanian [Lifewatch](https://lifewatch.ro) platform.
 
 ## References and relevant links
 
