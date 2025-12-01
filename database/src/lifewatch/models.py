@@ -5,6 +5,7 @@ from sqlalchemy import (
     Connection,
     Constraint,
     DateTime,
+    Float,
     ForeignKey,
     Integer,
     Interval,
@@ -131,7 +132,7 @@ class Measurement(Base):
         DateTime(timezone=True), primary_key=True
     )
     nanoseconds: Mapped[int] = mapped_column(nullable=False, default=0)
-    value: Mapped[float] = mapped_column(nullable=False)
+    value: Mapped[float] = mapped_column(Float(6), nullable=False)
 
     sensor: Mapped[Sensor] = relationship(back_populates="measurements")
     variable: Mapped[Variable] = relationship(back_populates="measurements")

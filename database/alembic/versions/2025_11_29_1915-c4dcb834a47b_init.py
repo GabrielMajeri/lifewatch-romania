@@ -84,7 +84,7 @@ def upgrade() -> None:
         sa.Column("variable_id", sa.Integer(), nullable=False),
         sa.Column("timestamp", sa.DateTime(timezone=True), nullable=False),
         sa.Column("nanoseconds", sa.Integer(), nullable=False),
-        sa.Column("value", sa.Float(), nullable=False),
+        sa.Column("value", sa.Float(6), nullable=False),
         sa.ForeignKeyConstraint(
             ["sensor_id"],
             ["sensors.id"],
