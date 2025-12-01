@@ -1,15 +1,20 @@
 #!/usr/bin/env python3
 
+import base64
 import csv
 import datetime
 from io import StringIO, TextIOWrapper
 from pathlib import Path
 import re
+from stat import S_ISREG
+from tempfile import gettempdir
+from time import perf_counter
 from typing import Annotated
 from zipfile import ZipFile
 
 from dotenv import load_dotenv
 from lifewatch.models import Measurement, Sensor, SensorType, Station, Variable
+from paramiko import Ed25519Key, PKey, SFTPClient, SSHClient
 from rich.console import Console
 from sqlalchemy import Engine, create_engine, literal, select
 from sqlalchemy.dialects.postgresql import insert
@@ -25,24 +30,22 @@ console = Console()
 app = typer.Typer()
 
 
-@app.command()
-def ingest(
+@app.command(help="Import files from a local directory.")
+def local(
     station_name: str,
     input_directory: Path,
     database_url: Annotated[
         str,
-        typer.Argument(
-            envvar="DATABASE_URL",
-        ),
+        typer.Argument(envvar="DATABASE_URL"),
     ] = "postgresql://dev:pwd@localhost:5432/lifewatch",
     use_copy: Annotated[
         bool,
         typer.Option(
-            help="Use the SQL `COPY FROM` command instead of `INSERT` to insert the parsed data into the database"
+            help="Use the SQL `COPY FROM` command instead of `INSERT` to insert the parsed data into the database."
         ),
     ] = True,
-) -> None:
-    engine = create_engine(database_url, echo=True)
+):
+    engine = create_engine(database_url)
 
     with Session(engine) as session:
         station_id = session.scalar(
@@ -72,18 +75,158 @@ def ingest(
     console.print(f"[blue]Processed {file_counter} GHG files[/blue]")
 
 
+@app.command(help="Import files from a directory on a remote machine, over SFTP.")
+def remote(
+    station_name: str,
+    private_key_path: Annotated[
+        Path, typer.Argument(envvar="DATABASE_SSH_PRIVATE_KEY")
+    ],
+    database_url: Annotated[
+        str,
+        typer.Argument(envvar="DATABASE_URL"),
+    ] = "postgresql://dev:pwd@localhost:5432/lifewatch",
+    sftp_path: Annotated[
+        str | None,
+        typer.Option(
+            help="Path to the input directory on the SFTP share. If not set, will try to read from the database (from the station's metadata)."
+        ),
+    ] = None,
+    use_copy: Annotated[
+        bool,
+        typer.Option(
+            help="Use the SQL `COPY FROM` command instead of `INSERT` to insert the parsed data into the database."
+        ),
+    ] = True,
+) -> None:
+    engine = create_engine(database_url)
+
+    with Session(engine) as session:
+        station_id = session.scalar(
+            select(Station.id).where(Station.name == station_name)
+        )
+        if station_id is None:
+            raise Exception(f"Could not find sensor station with name '{station_name}'")
+
+        if not sftp_path:
+            sftp_path = session.scalar(
+                select(Station.extra["sftp_path"]).where(Station.id == station_id)
+            )
+            if sftp_path is None:
+                raise Exception(
+                    "`sftp_path` is not set and it couldn't be read from the database"
+                )
+            else:
+                console.print(
+                    f"Successfully read `sftp_path` from database: '{sftp_path}'"
+                )
+
+    console.print(
+        f"[blue]Connecting to remote server {DATA_COLLECTION_SERVER_HOSTNAME} over SSH...[/blue]"
+    )
+
+    with DataCollectorClient(private_key_path) as client:
+        client.sftp_client.chdir(sftp_path)
+
+        console.print("[blue]Starting to process GHG files...[/blue]")
+
+        try:
+            # Generate a local temporary file path
+            temp_dir = gettempdir()
+            local_dir = Path(temp_dir) / "eddy_covariance"
+            local_dir.mkdir(parents=True, exist_ok=True)
+
+            file_counter = 0
+            file_attrs = client.sftp_client.listdir_attr()
+            for entry in file_attrs:
+                console.print(f"  Checking '{entry.filename}'...")
+                mode = entry.st_mode
+                if not mode:
+                    # Skip this entry if we cannot determine its type
+                    continue
+
+                is_file = S_ISREG(mode)
+                if is_file and entry.filename.endswith(".ghg"):
+                    console.print(f"  Processing '{entry.filename}'...")
+
+                    remote_path = entry.filename
+
+                    local_path = local_dir / entry.filename
+
+                    try:
+                        client.sftp_client.get(remote_path, local_path)
+                        import_data_from_ghg_file(
+                            engine, station_id, local_path, use_copy
+                        )
+                    finally:
+                        # Try to remove the local copy of the file, if possible
+                        local_path.unlink(missing_ok=True)
+
+                    file_counter += 1
+
+        finally:
+            # Try to remove the `eddy_covariance` directory, if possible
+            try:
+                local_dir.rmdir()
+            except Exception:
+                pass
+
+        console.print(f"[blue]Processed {file_counter} GHG files[/blue]")
+
+
+DATA_COLLECTION_SERVER_HOSTNAME: str = "colectare.lifewatch.unibuc.ro"
+
+
+class DataCollectorClient:
+    "Client for connecting to the data collection machine and reading data files from it."
+
+    ssh_client: SSHClient
+    sftp_client: SFTPClient
+
+    def __init__(self, private_key_path: Path) -> None:
+        self.ssh_client = SSHClient()
+
+        # Add the data collection server's host key to the SSH client's known host keys
+        host_keys = self.ssh_client.get_host_keys()
+        data_collection_server_host_key_type = "ssh-ed25519"
+        data_collection_server_host_key = (
+            "AAAAC3NzaC1lZDI1NTE5AAAAIPWFvNEtCG19tm8A7BPl4gT54IJcJLFjpkyZBiEDsMAZ"
+        )
+        host_keys.add(
+            DATA_COLLECTION_SERVER_HOSTNAME,
+            data_collection_server_host_key_type,
+            PKey.from_type_string(
+                data_collection_server_host_key_type,
+                base64.decodebytes(data_collection_server_host_key.encode()),
+            ),
+        )
+
+        # Try to connect
+        self.ssh_client.connect(
+            DATA_COLLECTION_SERVER_HOSTNAME,
+            username="sftpuser",
+            pkey=Ed25519Key.from_private_key_file(private_key_path),
+        )
+
+        self.sftp_client = self.ssh_client.open_sftp()
+        self.sftp_client.chdir("sftpuser")
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, exc_traceback):
+        self.sftp_client.close()
+        self.ssh_client.close()
+
+
 EDDY_COVARIANCE_DATA_FILE_NAME_REGEXP = re.compile(r"^.*_smart3-\d+\.data$")
+
+ghg_file_column_name_to_variable_name_mapping = None
 
 
 def import_data_from_ghg_file(
     engine: Engine, station_id: int, ghg_file_path: Path, use_copy: bool
 ):
     """Reads sensor measurements from a GHG file and stores them into the database."""
-
-    if not ghg_file_path.exists():
-        raise FileNotFoundError(
-            f"`.ghg` file does not exist or is not readable: '{ghg_file_path}'"
-        )
 
     # The .ghg files are actually Zip archives
     with ZipFile(ghg_file_path) as ghg_file:
@@ -178,11 +321,17 @@ def import_data_from_ghg_file(
             column_names = set(csv_reader.fieldnames)
             # console.print("Column names:", column_names)
 
-            column_name_to_variable_name_mapping = {
-                "CO2 (mmol/m^3)": "CO2 concentration",
-                "CO2 (umol/mol)": "CO2 molar fraction",
-                "CO2 Absorptance": "CO2 absorptance",
-            }
+            global ghg_file_column_name_to_variable_name_mapping
+            column_name_to_variable_name_mapping = (
+                ghg_file_column_name_to_variable_name_mapping
+            )
+            if column_name_to_variable_name_mapping is None:
+                ghg_file_column_name_to_variable_name_mapping = (
+                    load_ghg_data_file_column_name_to_variable_name_mapping()
+                )
+                column_name_to_variable_name_mapping = (
+                    ghg_file_column_name_to_variable_name_mapping
+                )
 
             column_name_to_variable_id_mapping = {}
             with Session(engine) as session:
@@ -206,16 +355,20 @@ def import_data_from_ghg_file(
             )
 
             with Session(engine) as session:
-                console.print("Database session created, preparing to insert rows...")
+                console.print(
+                    "    Database session created, preparing to insert rows..."
+                )
+
+                start_time = perf_counter()
 
                 if use_copy:
                     console.print(
-                        "Using PostgreSQL's `COPY FROM` command to bulk insert data"
+                        "    Using PostgreSQL's `COPY FROM` command to bulk insert data"
                     )
                     csv_output_buffer = StringIO("")
                     csv_writer = csv.writer(csv_output_buffer, delimiter="\t")
                 else:
-                    console.print("Inserting each row individually using `INSERT`")
+                    console.print("    Inserting each row individually using `INSERT`")
 
                 records_counter = 0
                 measurements_counter = 0
@@ -288,9 +441,26 @@ def import_data_from_ghg_file(
                     session.commit()
                     cursor.close()
 
-            print(
-                f"Succesfully imported {records_counter} rows, each with {len(column_name_to_variable_id_mapping.keys())} variables, for a total of {measurements_counter} measurements"
+                end_time = perf_counter()
+
+            console.print(
+                f"    Succesfully imported {records_counter} rows, each with {len(column_name_to_variable_id_mapping.keys())} variables, for a total of {measurements_counter} measurements"
             )
+
+            duration = end_time - start_time
+            console.print(f"    Took {duration:.2g} seconds")
+
+
+def load_ghg_data_file_column_name_to_variable_name_mapping() -> dict[str, str]:
+    mapping_file_path = Path(__file__).parents[2] / "ghg_file_columns_mapping.csv"
+
+    mappings = []
+    with open(mapping_file_path, newline="") as file:
+        csv_reader = csv.DictReader(file, delimiter=",")
+        for row in csv_reader:
+            mappings.append((row["column_name"], row["variable_name"]))
+
+    return dict(mappings)
 
 
 if __name__ == "__main__":

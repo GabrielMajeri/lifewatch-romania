@@ -1,6 +1,15 @@
-name,units,description,extra
-CO2 concentration,"mmol CO_{2} m^{-3}",CO2 concentration density,"{ ""icos_label"": ""CO2_CONC"" }"
-CO2 molar fraction,"umol CO2 mol^{-1}",CO2 molar fraction (in humid air),"{ ""icos_label"": ""CO2"" }"
-CO2 mass density,"mg CO_{2} m^{-3}",,"{ ""icos_label"": ""CO2_MASS"" }"
-H2O mass density,"g H_{2}O m^{-3}",,"{ ""icos_label"": ""H2O_MASS"" }"
-CO2 absorptance,adimensional,,"{ ""icos_label"": ""CO2_ABS"" }"
+name,units,description,icos_label
+CO2 concentration,"mmol CO_{2} m^{-3}",CO2 concentration density,CO2_CONC
+H2O concentration,"mmol H_{2}O m^{-3}",H2O concentration density,H2O_CONC
+CO2 raw power in sample wavelength,adimensional,CO2 raw power in the sample wavelength,CO2_POW_SAM
+H2O raw power in sample wavelength,adimensional,H2O raw power in the sample wavelength,H2O_POW_SAM
+CO2 raw power in reference wavelength,adimensional,CO2 raw power in the reference wavelength,CO2_POW_REF
+H2O raw power in reference wavelength,adimensional,H2O raw power in the reference wavelength,H2O_POW_REF
+CO2 molar fraction,"umol CO2 mol^{-1}",CO2 molar fraction (in humid air),CO2
+H2O molar fraction,"mmol H_{2}O mol^{-1}",H2O molar fraction (in humid air),H2O
+CO2 dry mole fraction,"umol CO_{2} mol^{-1}",CO2 dry mole fraction (in dry air),CO2_DRY
+H2O dry mole fraction,"mmol H_{2}O mol^{-1}",H2O dry mole fraction (in dry air),H2O_DRY
+CO2 mass density,"mg CO_{2} m^{-3}",,CO2_MASS
+H2O mass density,"g H_{2}O m^{-3}",,H2O_MASS
+CO2 absorptance,adimensional,,CO2_ABS
+H2O absorptance,adimensional,,H2O_ABS

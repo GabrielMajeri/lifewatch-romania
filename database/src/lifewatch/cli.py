@@ -1,5 +1,4 @@
 import csv
-import json
 from os import getenv
 from pathlib import Path
 from typing import Any
@@ -311,18 +310,6 @@ def read_csv_seed_file(name: str) -> list[dict[str, Any]]:
         return list(reader)
 
 
-def convert_json_column_to_dict(
-    data: list[dict[str, Any]], column_name: str
-) -> list[dict[str, Any]]:
-    return [
-        {
-            name: json.loads(value) if name == column_name else value
-            for name, value in row.items()
-        }
-        for row in data
-    ]
-
-
 @app.command()
 def seed():
     """Populates the database with initial data."""
@@ -333,7 +320,11 @@ def seed():
     with Session(engine) as session:
         # Import variables
         variables_data = read_csv_seed_file("variables.csv")
-        variables_data = convert_json_column_to_dict(variables_data, "extra")
+
+        for row in variables_data:
+            row["extra"] = {"icos_label": row["icos_label"]}
+            del row["icos_label"]
+
         _ = session.execute(
             insert(Variable).on_conflict_do_nothing(index_elements=["name"]),
             variables_data,
@@ -341,7 +332,11 @@ def seed():
 
         # Import stations
         stations_data = read_csv_seed_file("stations.csv")
-        stations_data = convert_json_column_to_dict(stations_data, "extra")
+
+        for row in stations_data:
+            row["extra"] = {"sftp_path": row["sftp_path"]}
+            del row["sftp_path"]
+
         _ = session.execute(
             insert(Station).on_conflict_do_nothing(index_elements=["name"]),
             stations_data,

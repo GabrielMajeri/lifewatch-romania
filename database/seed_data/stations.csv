@@ -1,5 +1,5 @@
-name,extra
-"Brașov","{ ""sftp_path"": ""icos/bv"" }"
-Enisala,"{ ""sftp_path"": ""icos/enisala"" }"
-"Insula Mare a Brăilei","{ ""sftp_path"": ""icos/imb"" }"
-"Polizești","{ ""sftp_path"": ""icos/poli"" } "
+name,sftp_path
+"Brașov",icos/bv
+Enisala,icos/enisala
+"Insula Mare a Brăilei",icos/imb
+"Polizești",icos/poli

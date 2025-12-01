@@ -2,7 +2,6 @@ from datetime import datetime
 from typing import Any, final
 
 from sqlalchemy import (
-    JSON,
     Connection,
     Constraint,
     DateTime,
@@ -15,6 +14,7 @@ from sqlalchemy import (
     select,
     text,
 )
+from sqlalchemy.dialects.postgresql import JSON
 from sqlalchemy.event import listens_for
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
@@ -152,7 +152,7 @@ def configure_hypertables(target: MetaData, connection: Connection, **kw):
     stmt = select(
         func.create_hypertable(
             Measurement.__tablename__,
-            func.by_range("timestamp", func.cast("1 day", Interval)),
+            func.by_range("timestamp", func.cast("1 day", Interval)),  # pyright: ignore[reportArgumentType]
         )
     )
     connection.execute(stmt)

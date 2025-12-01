@@ -3,7 +3,7 @@ requires = ["hatchling >= 1.26"]
 build-backend = "hatchling.build"
 
 [project]
-name = "lifewatch"
+name = "lifewatch-database"
 version = "0.1.0"
 dependencies = [
     "SQLAlchemy>=2",
