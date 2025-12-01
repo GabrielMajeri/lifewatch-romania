@@ -1,2 +1,5 @@
 # Ignore MacOS cache files
 .DS_Store
+
+# Ignore env files with secrets
+.env*

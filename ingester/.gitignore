@@ -1,5 +1,0 @@
-# Ignore build files
-/target/
-
-# Ignore env files with secrets
-.env
