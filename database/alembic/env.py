@@ -22,7 +22,9 @@ target_metadata = Base.metadata
 
 load_dotenv()
 
-DATABASE_URL = getenv("DATABASE_URL", "postgresql://dev:pwd@localhost:5432/lifewatch")
+DATABASE_URL = getenv(
+    "DATABASE_URL", "postgresql+psycopg://dev:pwd@localhost:5432/lifewatch"
+)
 config.set_main_option("sqlalchemy.url", DATABASE_URL)
 
 

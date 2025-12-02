@@ -3,7 +3,7 @@
 import base64
 import csv
 import datetime
-from io import StringIO, TextIOWrapper
+from io import TextIOWrapper
 from pathlib import Path
 import re
 from stat import S_ISREG
@@ -17,7 +17,6 @@ from lifewatch.models import EddyCovarianceMeasurement, Sensor, SensorType, Stat
 from paramiko import Ed25519Key, PKey, SFTPClient, SSHClient
 from rich.console import Console
 from sqlalchemy import Engine, create_engine, literal, select
-from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 import typer
 
@@ -37,13 +36,7 @@ def local(
     database_url: Annotated[
         str,
         typer.Argument(envvar="DATABASE_URL"),
-    ] = "postgresql://dev:pwd@localhost:5432/lifewatch",
-    use_copy: Annotated[
-        bool,
-        typer.Option(
-            help="Use the SQL `COPY FROM` command instead of `INSERT` to insert the parsed data into the database."
-        ),
-    ] = True,
+    ] = "postgresql+psycopg://dev:pwd@localhost:5432/lifewatch",
 ):
     engine = create_engine(database_url)
 
@@ -69,7 +62,7 @@ def local(
     for entry_path in input_directory.iterdir():
         if entry_path.is_file() and entry_path.suffix == ".ghg":
             console.print(f"  Processing '{entry_path}'...")
-            import_data_from_ghg_file(engine, station_id, entry_path, use_copy)
+            import_data_from_ghg_file(engine, station_id, entry_path)
             file_counter += 1
 
     console.print(f"[blue]Processed {file_counter} GHG files[/blue]")
@@ -84,19 +77,13 @@ def remote(
     database_url: Annotated[
         str,
         typer.Argument(envvar="DATABASE_URL"),
-    ] = "postgresql://dev:pwd@localhost:5432/lifewatch",
+    ] = "postgresql+psycopg://dev:pwd@localhost:5432/lifewatch",
     sftp_path: Annotated[
         str | None,
         typer.Option(
             help="Path to the input directory on the SFTP share. If not set, will try to read from the database (from the station's metadata)."
         ),
     ] = None,
-    use_copy: Annotated[
-        bool,
-        typer.Option(
-            help="Use the SQL `COPY FROM` command instead of `INSERT` to insert the parsed data into the database."
-        ),
-    ] = True,
 ) -> None:
     engine = create_engine(database_url)
 
@@ -154,9 +141,7 @@ def remote(
 
                     try:
                         client.sftp_client.get(remote_path, local_path)
-                        import_data_from_ghg_file(
-                            engine, station_id, local_path, use_copy
-                        )
+                        import_data_from_ghg_file(engine, station_id, local_path)
                     finally:
                         # Try to remove the local copy of the file, if possible
                         local_path.unlink(missing_ok=True)
@@ -223,9 +208,7 @@ EDDY_COVARIANCE_DATA_FILE_NAME_REGEXP = re.compile(r"^.*_smart3-\d+\.data$")
 ghg_file_column_name_to_table_column_name_mapping = None
 
 
-def import_data_from_ghg_file(
-    engine: Engine, station_id: int, ghg_file_path: Path, use_copy: bool
-):
+def import_data_from_ghg_file(engine: Engine, station_id: int, ghg_file_path: Path):
     """Reads sensor measurements from a GHG file and stores them into the database."""
 
     # The .ghg files are actually Zip archives
@@ -333,81 +316,50 @@ def import_data_from_ghg_file(
 
                 start_time = perf_counter()
 
-                if use_copy:
-                    console.print(
-                        "    Using PostgreSQL's `COPY FROM` command to bulk insert data"
-                    )
-                    csv_output_buffer = StringIO("")
-                    csv_writer = csv.writer(csv_output_buffer, delimiter="\t")
-                else:
-                    console.print("    Inserting each row individually using `INSERT`")
+                console.print(
+                    "    Using PostgreSQL's `COPY FROM` command to bulk insert data"
+                )
 
-                measurements_counter = 0
-                values_counter = 0
-                for row in csv_reader:
-                    timestamp = int(row["Seconds"])
-                    nanoseconds = int(row["Nanoseconds"])
-                    microseconds = round(nanoseconds / 1e3)
+                # Assemble list of columns
+                columns = [
+                    EddyCovarianceMeasurement.sensor_id.key,
+                    EddyCovarianceMeasurement.timestamp.key,
+                    EddyCovarianceMeasurement.nanoseconds.key,
+                ]
+                columns += [
+                    table_column_name for _, table_column_name in column_name_mapping
+                ]
 
-                    timestamp = datetime.datetime.fromtimestamp(timestamp, tz=zone)
-                    timestamp += datetime.timedelta(microseconds=microseconds)
-                    # print("Timestamp:", timestamp)
+                cursor = session.connection().connection.cursor()
+                with cursor.copy(
+                    f"COPY {EddyCovarianceMeasurement.__tablename__} ({', '.join(columns)}) FROM STDIN"
+                ) as copy:
+                    measurements_counter = 0
+                    values_counter = 0
+                    for row in csv_reader:
+                        timestamp = int(row["Seconds"])
+                        nanoseconds = int(row["Nanoseconds"])
+                        microseconds = round(nanoseconds / 1e3)
 
-                    # Extract relevant column values from this row
-                    measurement_values: list[str] = []
-                    for column_name, _ in column_name_mapping:
-                        value = row[column_name]
-                        measurement_values.append(value)
+                        timestamp = datetime.datetime.fromtimestamp(timestamp, tz=zone)
+                        timestamp += datetime.timedelta(microseconds=microseconds)
+                        # print("Timestamp:", timestamp)
 
-                    if use_copy:
-                        csv_writer.writerow(
+                        # Extract relevant column values from this row
+                        measurement_values: list[str] = []
+                        for column_name, _ in column_name_mapping:
+                            value = row[column_name]
+                            measurement_values.append(value)
+
+                        copy.write_row(
                             (sensor_id, timestamp, nanoseconds, *measurement_values)
                         )
-                    else:
-                        stmt = insert(EddyCovarianceMeasurement).values(
-                            sensor_id=sensor_id,
-                            timestamp=timestamp,
-                            nanoseconds=nanoseconds,
-                            *{
-                                table_column_name: column_name
-                                for column_name, table_column_name in column_name_mapping
-                            },
-                        )
-                        session.execute(stmt)
 
-                    values_counter += len(column_name_mapping)
-                    measurements_counter += 1
+                        values_counter += len(column_name_mapping)
+                        measurements_counter += 1
 
-                    if not use_copy:
-                        if measurements_counter % 256 == 0:
-                            session.commit()
-
-                if use_copy:
-                    cursor = session.connection().connection.cursor()
-
-                    # Go back to the start in order to be able to read whole data
-                    csv_output_buffer.seek(0)
-
-                    # Assemble list of columns
-                    columns = [
-                        EddyCovarianceMeasurement.sensor_id.key,
-                        EddyCovarianceMeasurement.timestamp.key,
-                        EddyCovarianceMeasurement.nanoseconds.key,
-                    ]
-                    columns += [
-                        table_column_name
-                        for _, table_column_name in column_name_mapping
-                    ]
-
-                    cursor.copy_from(
-                        csv_output_buffer,
-                        EddyCovarianceMeasurement.__tablename__,
-                        sep="\t",
-                        columns=columns,
-                    )
-
-                    session.commit()
-                    cursor.close()
+                session.commit()
+                cursor.close()
 
                 end_time = perf_counter()
 

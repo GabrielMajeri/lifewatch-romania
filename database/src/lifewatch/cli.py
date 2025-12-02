@@ -28,7 +28,9 @@ ALEMBIC_INI_PATH = Path(__file__).parents[2] / "alembic.ini"
 # to ensure `DATABASE_URL` gets defined beforehand.
 load_dotenv()
 
-DATABASE_URL = getenv("DATABASE_URL", "postgresql://dev:pwd@localhost:5432/lifewatch")
+DATABASE_URL = getenv(
+    "DATABASE_URL", "postgresql+psycopg://dev:pwd@localhost:5432/lifewatch"
+)
 
 
 def get_alembic_config():
