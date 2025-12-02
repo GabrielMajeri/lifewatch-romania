@@ -1,15 +1,15 @@
-column_name,variable_name
-CO2 (mmol/m^3),CO2 concentration
-H2O (mmol/m^3),H2O concentration
-CO2 Sample,CO2 raw power in sample wavelength
-H2O Sample,H2O raw power in sample wavelength
-CO2 Reference,CO2 raw power in reference wavelength
-H2O Reference,H2O raw power in reference wavelength
-CO2 (umol/mol),CO2 molar fraction
-H2O (mmol/mol),H2O molar fraction
-CO2 (umol/mol),CO2 dry mole fraction
-H2O (mmol/mol),H2O dry mole fraction
-CO2 (mg/m^3),CO2 mass density
-H2O (g/m^3),H2O mass density
-CO2 Absorptance,CO2 absorptance
-H2O Absorptance,H2O absorptance
+column_name,table_column_name
+CO2 (mmol/m^3),co2_concentration
+H2O (mmol/m^3),h2o_concentration
+CO2 Sample,co2_raw_power_in_sample_wavelength
+H2O Sample,h2o_raw_power_in_sample_wavelength
+CO2 Reference,co2_raw_power_in_reference_wavelength
+H2O Reference,h2o_raw_power_in_reference_wavelength
+CO2 (umol/mol),co2_molar_fraction
+H2O (mmol/mol),h2o_molar_fraction
+CO2 (umol/mol),co2_dry_mole_fraction
+H2O (mmol/mol),h2o_dry_mole_fraction
+CO2 (mg/m^3),co2_mass_density
+H2O (g/m^3),h2o_mass_density
+CO2 Absorptance,co2_absorptance
+H2O Absorptance,h2o_absorptance

@@ -15,7 +15,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 import typer
 
-from lifewatch.models import Base, SensorType, Station, Variable
+from lifewatch.models import Base, SensorType, Station
 
 console = Console()
 err_console = Console(stderr=True)
@@ -318,18 +318,6 @@ def seed():
 
     engine = create_engine(DATABASE_URL)
     with Session(engine) as session:
-        # Import variables
-        variables_data = read_csv_seed_file("variables.csv")
-
-        for row in variables_data:
-            row["extra"] = {"icos_label": row["icos_label"]}
-            del row["icos_label"]
-
-        _ = session.execute(
-            insert(Variable).on_conflict_do_nothing(index_elements=["name"]),
-            variables_data,
-        )
-
         # Import stations
         stations_data = read_csv_seed_file("stations.csv")
 

@@ -13,7 +13,7 @@ from typing import Annotated
 from zipfile import ZipFile
 
 from dotenv import load_dotenv
-from lifewatch.models import Measurement, Sensor, SensorType, Station, Variable
+from lifewatch.models import EddyCovarianceMeasurement, Sensor, SensorType, Station
 from paramiko import Ed25519Key, PKey, SFTPClient, SSHClient
 from rich.console import Console
 from sqlalchemy import Engine, create_engine, literal, select
@@ -220,7 +220,7 @@ class DataCollectorClient:
 
 EDDY_COVARIANCE_DATA_FILE_NAME_REGEXP = re.compile(r"^.*_smart3-\d+\.data$")
 
-ghg_file_column_name_to_variable_name_mapping = None
+ghg_file_column_name_to_table_column_name_mapping = None
 
 
 def import_data_from_ghg_file(
@@ -318,41 +318,13 @@ def import_data_from_ghg_file(
                     "Could not read variable names (column headers) from data file"
                 )
 
-            column_names = set(csv_reader.fieldnames)
-            # console.print("Column names:", column_names)
-
-            global ghg_file_column_name_to_variable_name_mapping
-            column_name_to_variable_name_mapping = (
-                ghg_file_column_name_to_variable_name_mapping
-            )
-            if column_name_to_variable_name_mapping is None:
-                ghg_file_column_name_to_variable_name_mapping = (
-                    load_ghg_data_file_column_name_to_variable_name_mapping()
+            global ghg_file_column_name_to_table_column_name_mapping
+            column_name_mapping = ghg_file_column_name_to_table_column_name_mapping
+            if column_name_mapping is None:
+                ghg_file_column_name_to_table_column_name_mapping = (
+                    load_ghg_file_column_name_to_table_column_name_mapping()
                 )
-                column_name_to_variable_name_mapping = (
-                    ghg_file_column_name_to_variable_name_mapping
-                )
-
-            column_name_to_variable_id_mapping = {}
-            with Session(engine) as session:
-                for (
-                    column_name,
-                    variable_name,
-                ) in column_name_to_variable_name_mapping.items():
-                    variable_id = session.scalar(
-                        select(Variable.id).where(Variable.name == variable_name)
-                    )
-
-                    if variable_id is None:
-                        raise Exception(
-                            f"Could not find variable with name '{variable_name}' in the database"
-                        )
-
-                    column_name_to_variable_id_mapping[column_name] = variable_id
-
-            assert column_name_to_variable_id_mapping.keys() <= column_names, (
-                f"Some required columns are missing from the file: {column_name_to_variable_id_mapping.keys() - column_names}"
-            )
+                column_name_mapping = ghg_file_column_name_to_table_column_name_mapping
 
             with Session(engine) as session:
                 console.print(
@@ -370,8 +342,8 @@ def import_data_from_ghg_file(
                 else:
                     console.print("    Inserting each row individually using `INSERT`")
 
-                records_counter = 0
                 measurements_counter = 0
+                values_counter = 0
                 for row in csv_reader:
                     timestamp = int(row["Seconds"])
                     nanoseconds = int(row["Nanoseconds"])
@@ -381,38 +353,33 @@ def import_data_from_ghg_file(
                     timestamp += datetime.timedelta(microseconds=microseconds)
                     # print("Timestamp:", timestamp)
 
-                    if not use_copy:
-                        measurements = []
-
-                    for (
-                        column_name,
-                        variable_id,
-                    ) in column_name_to_variable_id_mapping.items():
+                    # Extract relevant column values from this row
+                    measurement_values: list[str] = []
+                    for column_name, _ in column_name_mapping:
                         value = row[column_name]
+                        measurement_values.append(value)
 
-                        if use_copy:
-                            csv_writer.writerow(
-                                (sensor_id, variable_id, timestamp, nanoseconds, value)
-                            )
-                        else:
-                            measurements.append(
-                                {
-                                    "sensor_id": sensor_id,
-                                    "variable_id": variable_id,
-                                    "timestamp": timestamp,
-                                    "nanoseconds": nanoseconds,
-                                    "value": value,
-                                }
-                            )
-
-                    measurements_counter += len(column_name_to_variable_id_mapping)
-                    records_counter += 1
-
-                    if not use_copy:
-                        stmt = insert(Measurement).values(measurements)
+                    if use_copy:
+                        csv_writer.writerow(
+                            (sensor_id, timestamp, nanoseconds, *measurement_values)
+                        )
+                    else:
+                        stmt = insert(EddyCovarianceMeasurement).values(
+                            sensor_id=sensor_id,
+                            timestamp=timestamp,
+                            nanoseconds=nanoseconds,
+                            *{
+                                table_column_name: column_name
+                                for column_name, table_column_name in column_name_mapping
+                            },
+                        )
                         session.execute(stmt)
 
-                        if records_counter % 256 == 0:
+                    values_counter += len(column_name_mapping)
+                    measurements_counter += 1
+
+                    if not use_copy:
+                        if measurements_counter % 256 == 0:
                             session.commit()
 
                 if use_copy:
@@ -421,21 +388,22 @@ def import_data_from_ghg_file(
                     # Go back to the start in order to be able to read whole data
                     csv_output_buffer.seek(0)
 
-                    measurement_table_columns = tuple(
-                        column.key
-                        for column in (
-                            Measurement.sensor_id,
-                            Measurement.variable_id,
-                            Measurement.timestamp,
-                            Measurement.nanoseconds,
-                            Measurement.value,
-                        )
-                    )
+                    # Assemble list of columns
+                    columns = [
+                        EddyCovarianceMeasurement.sensor_id.key,
+                        EddyCovarianceMeasurement.timestamp.key,
+                        EddyCovarianceMeasurement.nanoseconds.key,
+                    ]
+                    columns += [
+                        table_column_name
+                        for _, table_column_name in column_name_mapping
+                    ]
+
                     cursor.copy_from(
                         csv_output_buffer,
-                        Measurement.__tablename__,
+                        EddyCovarianceMeasurement.__tablename__,
                         sep="\t",
-                        columns=measurement_table_columns,
+                        columns=columns,
                     )
 
                     session.commit()
@@ -444,23 +412,23 @@ def import_data_from_ghg_file(
                 end_time = perf_counter()
 
             console.print(
-                f"    Succesfully imported {records_counter} rows, each with {len(column_name_to_variable_id_mapping.keys())} variables, for a total of {measurements_counter} measurements"
+                f"    Succesfully imported {measurements_counter} rows, each with {len(column_name_mapping)} variables, for a total of {values_counter} measurements"
             )
 
             duration = end_time - start_time
             console.print(f"    Took {duration:.2g} seconds")
 
 
-def load_ghg_data_file_column_name_to_variable_name_mapping() -> dict[str, str]:
+def load_ghg_file_column_name_to_table_column_name_mapping() -> list[tuple[str, str]]:
     mapping_file_path = Path(__file__).parents[2] / "ghg_file_columns_mapping.csv"
 
-    mappings = []
+    mappings: list[tuple[str, str]] = []
     with open(mapping_file_path, newline="") as file:
         csv_reader = csv.DictReader(file, delimiter=",")
         for row in csv_reader:
-            mappings.append((row["column_name"], row["variable_name"]))
+            mappings.append((row["column_name"], row["table_column_name"]))
 
-    return dict(mappings)
+    return mappings
 
 
 if __name__ == "__main__":

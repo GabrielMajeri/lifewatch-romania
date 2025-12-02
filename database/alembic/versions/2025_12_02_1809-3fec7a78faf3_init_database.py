@@ -1,8 +1,8 @@
 """Initialize database
 
-Revision ID: c4dcb834a47b
+Revision ID: 3fec7a78faf3
 Revises:
-Create Date: 2025-11-29 19:15:37.974983
+Create Date: 2025-12-02 18:09:03.111753
 
 """
 
@@ -10,10 +10,10 @@ from collections.abc import Sequence
 
 from alembic import op
 import sqlalchemy as sa
-
+from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision: str = "c4dcb834a47b"
+revision: str = "3fec7a78faf3"
 down_revision: str | Sequence[str] | None = None
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
@@ -36,23 +36,11 @@ def upgrade() -> None:
         "stations",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("name", sa.String(), nullable=False),
-        sa.Column("extra", sa.JSON(), nullable=False),
+        sa.Column("extra", postgresql.JSON(astext_type=sa.Text()), nullable=False),
         sa.Column("created_at", sa.DateTime(), nullable=False),
         sa.Column("updated_at", sa.DateTime(), nullable=False),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("name", name="stations_name_unique"),
-    )
-    op.create_table(
-        "variables",
-        sa.Column("id", sa.Integer(), nullable=False),
-        sa.Column("name", sa.String(), nullable=False),
-        sa.Column("description", sa.String(), nullable=False),
-        sa.Column("units", sa.String(), nullable=False),
-        sa.Column("extra", sa.JSON(), nullable=False),
-        sa.Column("created_at", sa.DateTime(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(), nullable=False),
-        sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("name", name="variables_name_unique"),
     )
     op.create_table(
         "sensors",
@@ -79,37 +67,58 @@ def upgrade() -> None:
         ),
     )
     op.create_table(
-        "measurements",
+        "eddy_covariance_measurements",
         sa.Column("sensor_id", sa.Integer(), nullable=False),
-        sa.Column("variable_id", sa.Integer(), nullable=False),
         sa.Column("timestamp", sa.DateTime(timezone=True), nullable=False),
         sa.Column("nanoseconds", sa.Integer(), nullable=False),
-        sa.Column("value", sa.Float(6), nullable=False),
+        sa.Column("co2_concentration", sa.Float(precision=6), nullable=False),
+        sa.Column("h2o_concentration", sa.Float(precision=6), nullable=False),
+        sa.Column(
+            "co2_raw_power_in_sample_wavelength", sa.Float(precision=6), nullable=False
+        ),
+        sa.Column(
+            "h2o_raw_power_in_sample_wavelength", sa.Float(precision=6), nullable=False
+        ),
+        sa.Column(
+            "co2_raw_power_in_reference_wavelength",
+            sa.Float(precision=6),
+            nullable=False,
+        ),
+        sa.Column(
+            "h2o_raw_power_in_reference_wavelength",
+            sa.Float(precision=6),
+            nullable=False,
+        ),
+        sa.Column("co2_molar_fraction", sa.Float(precision=6), nullable=False),
+        sa.Column("h2o_molar_fraction", sa.Float(precision=6), nullable=False),
+        sa.Column("co2_dry_mole_fraction", sa.Float(precision=6), nullable=False),
+        sa.Column("h2o_dry_mole_fraction", sa.Float(precision=6), nullable=False),
+        sa.Column("co2_mass_density", sa.Float(precision=6), nullable=False),
+        sa.Column("h2o_mass_density", sa.Float(precision=6), nullable=False),
+        sa.Column("co2_absorptance", sa.Float(precision=6), nullable=False),
+        sa.Column("h2o_absorptance", sa.Float(precision=6), nullable=False),
         sa.ForeignKeyConstraint(
             ["sensor_id"],
             ["sensors.id"],
         ),
-        sa.ForeignKeyConstraint(
-            ["variable_id"],
-            ["variables.id"],
-        ),
-        sa.PrimaryKeyConstraint("sensor_id", "variable_id", "timestamp"),
+        sa.PrimaryKeyConstraint("sensor_id", "timestamp"),
     )
 
     op.execute(
-        "SELECT create_hypertable('measurements', by_range('timestamp', INTERVAL '1 day'))"
+        "SELECT create_hypertable('eddy_covariance_measurements', by_range('timestamp', INTERVAL '1 day'))"
     )
-    op.execute("""ALTER TABLE measurements SET (
+    op.execute("""ALTER TABLE eddy_covariance_measurements SET (
         tsdb.enable_columnstore = true,
-        tsdb.segmentby = 'sensor_id, variable_id'
+        tsdb.segmentby = 'sensor_id'
     )""")
-    op.execute("CALL add_columnstore_policy('measurements', after => INTERVAL '1 day')")
+    op.execute(
+        "CALL add_columnstore_policy('eddy_covariance_measurements', after => INTERVAL '1 day')"
+    )
 
 
 def downgrade() -> None:
     """Downgrade schema."""
-    op.drop_table("measurements")
+    op.drop_table("eddy_covariance_measurements")
     op.drop_table("sensors")
-    op.drop_table("variables")
     op.drop_table("stations")
     op.drop_table("sensor_types")
