@@ -15,7 +15,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 import typer
 
-from lifewatch.models import Base, SensorType, Station
+from .models import Base, SensorType, Station
 
 console = Console()
 err_console = Console(stderr=True)

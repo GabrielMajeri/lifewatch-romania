@@ -15,7 +15,7 @@ dependencies = [
 requires-python = ">= 3.13"
 
 [project.scripts]
-lifewatch-db = "lifewatch.cli:app"
+lifewatch-db = "lifewatch.database.cli:app"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/lifewatch"]
