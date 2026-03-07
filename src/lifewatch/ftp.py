@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from ftplib import FTP, FTP_TLS
 from ssl import SSLSocket
 
@@ -24,3 +25,13 @@ class Fixed_FTP_TLS(FTP_TLS):
             )  # reuses TLS session
             conn.__class__ = ReusedSslSocket  # we should not close reused ssl socket when file transfers finish
         return conn, size
+
+
+@dataclass
+class FTPCredentials:
+    "Data structure holding all information required to identify and connect to a FTP server."
+
+    host: str
+    port: int
+    user: str
+    password: str
