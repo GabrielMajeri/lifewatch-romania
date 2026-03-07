@@ -1,4 +1,5 @@
 name,sftp_path
+# TODO: are the meteo and EC stations different?
 "Brașov",icos/bv
 Enisala,icos/enisala
 "Insula Mare a Brăilei",icos/imb

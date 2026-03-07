@@ -15,14 +15,14 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 import typer
 
-from .models import Base, SensorType, Station
+from ..models import Base, Station
 
 console = Console()
 err_console = Console(stderr=True)
 
 app = typer.Typer()
 
-ALEMBIC_INI_PATH = Path(__file__).parents[2] / "alembic.ini"
+ALEMBIC_INI_PATH = Path(__file__).parents[3] / "alembic.ini"
 
 # Load environment variables before importing our code modules,
 # to ensure `DATABASE_URL` gets defined beforehand.
@@ -33,7 +33,7 @@ DATABASE_URL = getenv(
 )
 
 
-def get_alembic_config():
+def _get_alembic_config():
     "Load the Alembic configuration object."
 
     if not ALEMBIC_INI_PATH.exists():
@@ -52,6 +52,22 @@ def get_alembic_config():
     alembic_cfg.set_main_option("sqlalchemy.url", DATABASE_URL)
 
     return alembic_cfg
+
+
+@app.command()
+def check() -> None:
+    "Checks the current state of the database."
+
+    console.print("[bold blue]Checking current database state...[/bold blue]")
+
+    alembic_cfg = _get_alembic_config()
+
+    try:
+        command.check(alembic_cfg)
+        console.print("[bold green]Database checked![/bold green]")
+    except Exception as e:
+        console.print(f"[bold red]Checking database status failed:[/bold red] {e}")
+        raise typer.Exit(code=1)
 
 
 @app.command()
@@ -78,7 +94,7 @@ def migrate(revision: str = "head"):
 
     console.print(f"[bold blue]Running migrations (target: {revision})...[/bold blue]")
 
-    alembic_cfg = get_alembic_config()
+    alembic_cfg = _get_alembic_config()
 
     try:
         command.upgrade(alembic_cfg, revision)
@@ -99,7 +115,7 @@ def make_migration(message: str):
         raise typer.Exit(code=1)
 
     console.print(f"[bold blue]Generating migration: {message}[/bold blue]")
-    alembic_cfg = get_alembic_config()
+    alembic_cfg = _get_alembic_config()
 
     try:
         command.revision(alembic_cfg, message=message, autogenerate=True)
@@ -139,7 +155,7 @@ def downgrade(
 
     console.print("[bold blue]Downgrading...[/bold blue]")
 
-    alembic_cfg = get_alembic_config()
+    alembic_cfg = _get_alembic_config()
 
     try:
         command.downgrade(alembic_cfg, revision)
@@ -158,7 +174,7 @@ def delete_last_migration(
     Used if you created a migration by mistake and want to 'undo' it entirely.
     """
 
-    alembic_cfg = get_alembic_config()
+    alembic_cfg = _get_alembic_config()
 
     # First, we inspect the migration scripts to find the latest file (head)
     script = ScriptDirectory.from_config(alembic_cfg)
@@ -240,7 +256,7 @@ def delete_last_migration(
         raise typer.Exit(1)
 
 
-def drop_all_tables(force: bool):
+def _drop_all_tables(force: bool):
     console.print(
         "[bold red]WARNING: This will DROP ALL DATA in the database.[/bold red]"
     )
@@ -273,7 +289,7 @@ def drop(
     "Drops all tables."
 
     try:
-        drop_all_tables(force)
+        _drop_all_tables(force)
     except Exception as e:
         console.print(f"[bold red]Dropping tables failed:[/bold red] {e}")
 
@@ -287,11 +303,11 @@ def reset(
     "Drops all tables and re-runs migrations."
 
     try:
-        drop_all_tables(force=force)
+        _drop_all_tables(force=force)
 
         # Re-run migrations
         console.print("[bold blue]Re-applying migrations...[/bold blue]")
-        alembic_cfg = get_alembic_config()
+        alembic_cfg = _get_alembic_config()
         command.upgrade(alembic_cfg, "head")
 
         console.print("[bold green]Database reset complete![/bold green]")
@@ -300,7 +316,7 @@ def reset(
         console.print(f"[bold red]Reset failed:[/bold red] {e}")
 
 
-def read_csv_seed_file(name: str) -> list[dict[str, Any]]:
+def _read_csv_seed_file(name: str) -> list[dict[str, Any]]:
     print(f"Loading seed data file '{name}'")
 
     seed_files_directory = Path(__file__).parents[2] / "seed_data"
@@ -321,7 +337,7 @@ def seed():
     engine = create_engine(DATABASE_URL)
     with Session(engine) as session:
         # Import stations
-        stations_data = read_csv_seed_file("stations.csv")
+        stations_data = _read_csv_seed_file("stations.csv")
 
         for row in stations_data:
             row["extra"] = {"sftp_path": row["sftp_path"]}
@@ -332,18 +348,5 @@ def seed():
             stations_data,
         )
 
-        # Import sensor types
-        sensor_types_data = read_csv_seed_file("sensor_types.csv")
-        _ = session.execute(
-            insert(SensorType)
-            .on_conflict_do_nothing(index_elements=["name"])
-            .returning(SensorType),
-            sensor_types_data,
-        )
-
         session.commit()
         console.print("[bold green]Seeding complete![/bold green]")
-
-
-if __name__ == "__main__":
-    app()

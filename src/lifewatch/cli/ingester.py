@@ -1,36 +1,137 @@
-#!/usr/bin/env python3
-
 import base64
 import csv
 import datetime
+from ftplib import FTP, FTP_TLS
 from io import TextIOWrapper
 from pathlib import Path
+import logging
 import re
+from ssl import SSLSocket
 from stat import S_ISREG
 from tempfile import gettempdir
 from time import perf_counter
 from typing import Annotated
 from zipfile import ZipFile
 
+import coloredlogs
 from dotenv import load_dotenv
-from lifewatch.models import EddyCovarianceMeasurement, Sensor, SensorType, Station
 from paramiko import Ed25519Key, PKey, SFTPClient, SSHClient
 from rich.console import Console
 from sqlalchemy import Engine, create_engine, literal, select
 from sqlalchemy.orm import Session
 import typer
 
+from ..models import (
+    EddyCovarianceMeasurement,
+    Station,
+)
 
 # Load environment variables from `.env` file (if it exists)
 load_dotenv()
 
 console = Console()
 
+coloredlogs.install(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 app = typer.Typer()
 
 
-@app.command(help="Import files from a local directory.")
-def local(
+class ReusedSslSocket(SSLSocket):
+    def unwrap(self) -> None:
+        pass
+
+
+class Fixed_FTP_TLS(FTP_TLS):
+    """Explicit FTPS, with shared TLS session.
+
+    Based on https://stackoverflow.com/a/53456626/5723188,
+    which is itself inspired from https://stackoverflow.com/a/43301750/5723188.
+    """
+
+    def ntransfercmd(self, cmd, rest=None):
+        conn, size = FTP.ntransfercmd(self, cmd, rest)
+        if self._prot_p:  # pyright: ignore[reportAttributeAccessIssue]
+            conn = self.context.wrap_socket(
+                conn,
+                server_hostname=self.host,
+                session=self.sock.session,  # pyright: ignore[reportAttributeAccessIssue, reportOptionalMemberAccess]
+            )  # reuses TLS session
+            conn.__class__ = ReusedSslSocket  # we should not close reused ssl socket when file transfers finish
+        return conn, size
+
+
+@app.command(help="Ingest meteorological data files from the FTP server.")
+def ingest_meteo(
+    ftp_host: Annotated[str, typer.Argument(envvar="METEO_FTP_HOST")],
+    ftp_port: Annotated[int, typer.Argument(envvar="METEO_FTP_PORT")],
+    ftp_user: Annotated[str, typer.Argument(envvar="METEO_FTP_USER")],
+    ftp_password: Annotated[str, typer.Argument(envvar="METEO_FTP_PASSWORD")],
+):
+    with Fixed_FTP_TLS() as ftp:
+        response = ftp.connect(ftp_host, ftp_port, timeout=3)
+        logger.info("FTP connect response: %s", response)
+
+        response = ftp.auth()
+        logger.info("FTP auth response: %s", response)
+
+        response = ftp.login(ftp_user, ftp_password)
+        logger.info("FTP login response: %s", response)
+
+        response = ftp.prot_p()
+        logger.info("FTP protected protocol switch response: %s", response)
+
+        root_dir_entries = ftp.nlst()
+        logger.info("Root directory entries: %s", root_dir_entries)
+
+        processed_data_dir = "meteo_procesat"
+        if processed_data_dir not in root_dir_entries:
+            raise RuntimeError(
+                f"Processed meteorological data directory '{processed_data_dir}' not found in FTP share root"
+            )
+
+        response = ftp.cwd(processed_data_dir)
+        logger.info("FTP change current directory response: %s", response)
+
+        processed_data_dir_entries = ftp.nlst()
+        logger.info("Processed data files: %s", processed_data_dir_entries)
+
+        if "20" not in processed_data_dir_entries:
+            raise RuntimeError(
+                "Directory for variables with periodicity of 20 seconds not found"
+            )
+
+        response = ftp.cwd("20")
+        logger.info("FTP change current directory response: %s", response)
+
+        data_files_20s_periodicity = ftp.nlst()
+        logger.info("20 seconds directory listing: %s", data_files_20s_periodicity)
+
+        if "30" not in processed_data_dir_entries:
+            raise RuntimeError(
+                "Directory for variables with periodicity of 30 seconds not found"
+            )
+
+        response = ftp.cwd("../30")
+
+        data_files_30s_periodicity = ftp.nlst()
+        logger.info("30 seconds directory listing: %s", data_files_30s_periodicity)
+
+        if "60" not in processed_data_dir_entries:
+            raise RuntimeError(
+                "Directory for variables with periodicity of 60 seconds not found"
+            )
+
+        response = ftp.cwd("../60")
+
+        data_files_60s_periodicity = ftp.nlst()
+        logger.info("60 seconds directory listing: %s", data_files_60s_periodicity)
+
+    raise NotImplementedError("Not yet working")
+
+
+@app.command(help="Import eddy covariance files from a local directory.")
+def local_eddy_covariance(
     station_name: str,
     input_directory: Path,
     database_url: Annotated[
@@ -69,7 +170,7 @@ def local(
 
 
 @app.command(help="Import files from a directory on a remote machine, over SFTP.")
-def remote(
+def remote_eddy_covariance(
     station_name: str,
     private_key_path: Annotated[
         Path, typer.Argument(envvar="DATABASE_SSH_PRIVATE_KEY")
@@ -372,7 +473,7 @@ def import_data_from_ghg_file(engine: Engine, station_id: int, ghg_file_path: Pa
 
 
 def load_ghg_file_column_name_to_table_column_name_mapping() -> list[tuple[str, str]]:
-    mapping_file_path = Path(__file__).parents[2] / "ghg_file_columns_mapping.csv"
+    mapping_file_path = Path(__file__).parent / "ghg_file_columns_mapping.csv"
 
     mappings: list[tuple[str, str]] = []
     with open(mapping_file_path, newline="") as file:
@@ -381,7 +482,3 @@ def load_ghg_file_column_name_to_table_column_name_mapping() -> list[tuple[str, 
             mappings.append((row["column_name"], row["table_column_name"]))
 
     return mappings
-
-
-if __name__ == "__main__":
-    app()
