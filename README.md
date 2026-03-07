@@ -6,7 +6,7 @@ This repository hosts the source code of the data platform for the Romanian bran
 
 ## Contents
 
-We currently host two command-line tools:
+We currently provide two command-line tools:
 
 - The database tool, which manages the database schema and performs general data operations.
 - The ingester, which is able to connect to the LifeWatch RO data collection servers, read the latest records and insert them into the database.
@@ -32,3 +32,24 @@ They are both accessible as subcommands of the `lifewatch` command-line app, whi
   - [openEO access homepage](https://dataspace.copernicus.eu/analyse/openeo)
   - [openEO API docs](https://documentation.dataspace.copernicus.eu/APIs/openEO/openEO.html)
   - [openEO Web Editor](https://openeo.dataspace.copernicus.eu/)
+
+## Development setup
+
+The database model is defined in [Python](https://www.python.org/), with the help of [SQLAlchemy](https://www.sqlalchemy.org/).
+
+We recommend using [uv](https://docs.astral.sh/uv/) to manage your Python environment.
+
+### Environment variables
+
+Most of the commands are designed to determine which servers to connect to and with which credentials by reading some environment variables. Create a `.env` file at the root of this repo containing the following variables:
+
+```shell
+COMPOSE_PROJECT_NAME=lifewatch
+DATABASE_URL=postgresql+psycopg://<username>:<password>@<hostname>:5432/<database>
+
+# For meteorological/weather station data reading (from the data collection FTP server)
+METEO_FTP_HOST=
+METEO_FTP_PORT=
+METEO_FTP_USER=
+METEO_FTP_PASSWORD=
+```

@@ -15,7 +15,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 import typer
 
-from ..models import Base, Station
+from ..models import Base, EddyCovarianceStationInfo, MeteorologicalStationInfo, Station
 
 console = Console()
 err_console = Console(stderr=True)
@@ -319,7 +319,7 @@ def reset(
 def _read_csv_seed_file(name: str) -> list[dict[str, Any]]:
     print(f"Loading seed data file '{name}'")
 
-    seed_files_directory = Path(__file__).parents[2] / "seed_data"
+    seed_files_directory = Path(__file__).parents[3] / "seed_data"
     seed_file_path = seed_files_directory / name
 
     with open(seed_file_path, newline="") as file:
@@ -339,14 +339,35 @@ def seed():
         # Import stations
         stations_data = _read_csv_seed_file("stations.csv")
 
-        for row in stations_data:
-            row["extra"] = {"sftp_path": row["sftp_path"]}
-            del row["sftp_path"]
+        for station_data in stations_data:
+            stmt = insert(Station).values(name=station_data["name"])
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["name"], set_={"name": stmt.excluded.name}
+            )
+            result = session.execute(stmt.returning(Station.id))
+            row = result.one()
 
-        _ = session.execute(
-            insert(Station).on_conflict_do_nothing(index_elements=["name"]),
-            stations_data,
-        )
+            station_id = row.tuple()[0]
+
+            if station_data["meteorological_station_code"]:
+                stmt = insert(MeteorologicalStationInfo).values(
+                    station_id=station_id,
+                    code=station_data["meteorological_station_code"],
+                )
+                stmt = stmt.on_conflict_do_update(
+                    index_elements=["code"], set_={"code": stmt.excluded.code}
+                )
+                session.execute(stmt)
+
+            if station_data["eddy_covariance_station_code"]:
+                stmt = insert(EddyCovarianceStationInfo).values(
+                    station_id=station_id,
+                    code=station_data["eddy_covariance_station_code"],
+                )
+                stmt = stmt.on_conflict_do_update(
+                    index_elements=["code"], set_={"code": stmt.excluded.code}
+                )
+                session.execute(stmt)
 
         session.commit()
         console.print("[bold green]Seeding complete![/bold green]")

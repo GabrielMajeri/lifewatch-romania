@@ -1,6 +1,6 @@
-name,sftp_path
-# TODO: are the meteo and EC stations different?
-"Brașov",icos/bv
-Enisala,icos/enisala
-"Insula Mare a Brăilei",icos/imb
-"Polizești",icos/poli
+name,meteorological_station_code,eddy_covariance_station_code
+"Stația 10 - Argeș, Dâmbăvicioara",AG-Dmb,
+"Brașov",,bv
+Enisala,,enisala
+"Insula Mare a Brăilei",,imb
+"Polizești",,poli

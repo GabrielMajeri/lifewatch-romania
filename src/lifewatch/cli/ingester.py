@@ -1,16 +1,16 @@
 import base64
 import csv
+from dataclasses import dataclass
 import datetime
-from ftplib import FTP, FTP_TLS
-from io import TextIOWrapper
+from enum import StrEnum
+from io import BytesIO, StringIO, TextIOWrapper
 from pathlib import Path
 import logging
 import re
-from ssl import SSLSocket
 from stat import S_ISREG
 from tempfile import gettempdir
 from time import perf_counter
-from typing import Annotated
+from typing import IO, Annotated
 from zipfile import ZipFile
 
 import coloredlogs
@@ -21,8 +21,11 @@ from sqlalchemy import Engine, create_engine, literal, select
 from sqlalchemy.orm import Session
 import typer
 
+from ..ftp import Fixed_FTP_TLS
 from ..models import (
     EddyCovarianceMeasurement,
+    Meteorological20SecondMeasurement,
+    MeteorologicalStationInfo,
     Station,
 )
 
@@ -37,53 +40,84 @@ logger = logging.getLogger(__name__)
 app = typer.Typer()
 
 
-class ReusedSslSocket(SSLSocket):
-    def unwrap(self) -> None:
-        pass
-
-
-class Fixed_FTP_TLS(FTP_TLS):
-    """Explicit FTPS, with shared TLS session.
-
-    Based on https://stackoverflow.com/a/53456626/5723188,
-    which is itself inspired from https://stackoverflow.com/a/43301750/5723188.
-    """
-
-    def ntransfercmd(self, cmd, rest=None):
-        conn, size = FTP.ntransfercmd(self, cmd, rest)
-        if self._prot_p:  # pyright: ignore[reportAttributeAccessIssue]
-            conn = self.context.wrap_socket(
-                conn,
-                server_hostname=self.host,
-                session=self.sock.session,  # pyright: ignore[reportAttributeAccessIssue, reportOptionalMemberAccess]
-            )  # reuses TLS session
-            conn.__class__ = ReusedSslSocket  # we should not close reused ssl socket when file transfers finish
-        return conn, size
+class MeteorologicalVariablePeriodicity(StrEnum):
+    EVERY_20_SECONDS = "20s"
+    EVERY_30_SECONDS = "30s"
+    EVERY_60_SECONDS = "60s"
 
 
 @app.command(help="Ingest meteorological data files from the FTP server.")
-def ingest_meteo(
+def meteo(
     ftp_host: Annotated[str, typer.Argument(envvar="METEO_FTP_HOST")],
     ftp_port: Annotated[int, typer.Argument(envvar="METEO_FTP_PORT")],
     ftp_user: Annotated[str, typer.Argument(envvar="METEO_FTP_USER")],
     ftp_password: Annotated[str, typer.Argument(envvar="METEO_FTP_PASSWORD")],
-):
+    database_url: Annotated[
+        str,
+        typer.Argument(envvar="DATABASE_URL"),
+    ] = "postgresql+psycopg://dev:pwd@localhost:5432/lifewatch",
+    selected_periodicities: Annotated[
+        list[MeteorologicalVariablePeriodicity],
+        typer.Option(
+            help="Periodicities of variables which to ingest. Can be used to filter out certain groups of variables/measurements."
+        ),
+    ] = list(MeteorologicalVariablePeriodicity),
+    selected_station_codes: Annotated[
+        list[str],
+        typer.Option(
+            "--station",
+            "--station-code",
+            "--station-id",
+            help="Short identification code of weather stations for which to retrieve data. If not set, will fetch measurements from all available stations. Example value: `AG-Dmb`.",
+        ),
+    ] = [],
+    from_date_str: Annotated[str, typer.Option("--from", "--since")] = "",
+    until_date_str: Annotated[str, typer.Option("--until")] = "",
+    debug: Annotated[
+        bool,
+        typer.Option(
+            help="Enable debug-level logging, for diagnosing issues with the FTP connection or data ingestion code."
+        ),
+    ] = False,
+) -> None:
+    if debug:
+        coloredlogs.adjust_level(logger, logging.DEBUG)
+
+    if from_date_str:
+        from_date = datetime.date.fromisoformat(from_date_str)
+    else:
+        from_date = None
+
+    if until_date_str:
+        until_date = datetime.date.fromisoformat(until_date_str)
+    else:
+        until_date = None
+
+    # Connect to the database
+    engine = create_engine(database_url)
+
+    logger.info("LifeWatch data ingestion tool started")
+
+    logger.info("Connecting to FTP server `%s:%d`...", ftp_host, ftp_port)
+
     with Fixed_FTP_TLS() as ftp:
         response = ftp.connect(ftp_host, ftp_port, timeout=3)
-        logger.info("FTP connect response: %s", response)
+        logger.debug("FTP connect response: %s", response)
 
         response = ftp.auth()
-        logger.info("FTP auth response: %s", response)
+        logger.debug("FTP auth response: %s", response)
 
         response = ftp.login(ftp_user, ftp_password)
-        logger.info("FTP login response: %s", response)
+        logger.debug("FTP login response: %s", response)
 
         response = ftp.prot_p()
-        logger.info("FTP protected protocol switch response: %s", response)
+        logger.debug("FTP protected protocol switch response: %s", response)
 
         root_dir_entries = ftp.nlst()
-        logger.info("Root directory entries: %s", root_dir_entries)
+        logger.debug("Root directory entries: %s", root_dir_entries)
 
+        # TODO: in the future we might want to / have to support reading the "raw" data files directly.
+        # They're still CSV files, but the first few rows act as a header (describing station/sensor metadata, measurement units, column names etc).
         processed_data_dir = "meteo_procesat"
         if processed_data_dir not in root_dir_entries:
             raise RuntimeError(
@@ -91,21 +125,115 @@ def ingest_meteo(
             )
 
         response = ftp.cwd(processed_data_dir)
-        logger.info("FTP change current directory response: %s", response)
+        logger.debug("FTP change current directory response: %s", response)
 
         processed_data_dir_entries = ftp.nlst()
-        logger.info("Processed data files: %s", processed_data_dir_entries)
+        logger.debug("Processed data files: %s", processed_data_dir_entries)
 
-        if "20" not in processed_data_dir_entries:
-            raise RuntimeError(
-                "Directory for variables with periodicity of 20 seconds not found"
+        logger.info(
+            "Selected variable periodicities for which to ingest data: %s",
+            ", ".join(p.value for p in selected_periodicities),
+        )
+
+        # Construct a lookup table from station codes to station IDs
+        stmt = select(
+            MeteorologicalStationInfo.station_id,
+            MeteorologicalStationInfo.code,
+        )
+
+        # If we'll filter the data files by station code,
+        # only look up associations for the stations with those codes.
+        if selected_station_codes:
+            stmt = stmt.where(
+                MeteorologicalStationInfo.code.in_(selected_station_codes)
             )
 
-        response = ftp.cwd("20")
-        logger.info("FTP change current directory response: %s", response)
+        with Session(engine) as session:
+            result = session.execute(stmt)
+            station_ids_and_codes = result.all()
 
-        data_files_20s_periodicity = ftp.nlst()
-        logger.info("20 seconds directory listing: %s", data_files_20s_periodicity)
+        if selected_station_codes and len(station_ids_and_codes) != len(
+            selected_station_codes
+        ):
+            logger.error(
+                "Could not find stations corresponding to some of the provided station codes"
+            )
+
+            retrieved_station_codes = (code for (_, code) in station_ids_and_codes)
+            missing_stations = set(selected_station_codes) - set(
+                retrieved_station_codes
+            )
+            logger.error(
+                "Station codes for which no corresponding station could be found in the database: %s",
+                " ".join(missing_stations),
+            )
+
+            raise typer.Exit(1)
+
+        station_code_to_station_id: dict[str, int] = {
+            station_code: station_id
+            for (station_id, station_code) in station_ids_and_codes
+        }
+
+        if MeteorologicalVariablePeriodicity.EVERY_20_SECONDS in selected_periodicities:
+            if "20" not in processed_data_dir_entries:
+                raise RuntimeError(
+                    "Directory for variables with periodicity of 20 seconds not found"
+                )
+
+            response = ftp.cwd("20")
+            logger.debug("FTP change current directory response: %s", response)
+
+            data_files_20s_periodicity = ftp.nlst()
+            # logger.debug("20 seconds directory listing: %s", data_files_20s_periodicity)
+
+            # Extract station identifiers and file dates
+            files_metadata = extract_metadata_from_file_names(
+                data_files_20s_periodicity
+            )
+
+            # Filter files based on user-provided criteria
+            files_metadata = filter_files(
+                files_metadata, selected_station_codes, from_date, until_date
+            )
+
+            if not files_metadata:
+                logger.error("No data files were found matching the provided filters")
+                raise typer.Exit(1)
+
+            logger.info(
+                "Found %d files matching provided filters",
+                len(files_metadata),
+            )
+
+            station_ids = []
+            for meta in files_metadata:
+                station_code = meta.station_code
+                station_id = station_code_to_station_id.get(station_code)
+
+                if not station_id:
+                    logger.error(
+                        f"Could not find station with code '{station_code}' in list of stations retrieved from the database"
+                    )
+                    raise typer.Exit(1)
+
+                station_ids.append(station_id)
+
+            logger.info("Beginning to read/ingest files")
+
+            for file_meta, station_id in zip(files_metadata, station_ids):
+                buffer = BytesIO()
+                response = ftp.retrbinary(f"RETR {file_meta.name}", buffer.write)
+                logger.debug("FTP retrieve file response: %s", response)
+
+                file_contents = buffer.getvalue().decode("utf-8")
+                string_io = StringIO(file_contents)
+
+                ingest_20_seconds_periodicity_weather_data(
+                    string_io, engine, station_id
+                )
+
+        return
 
         if "30" not in processed_data_dir_entries:
             raise RuntimeError(
@@ -128,6 +256,134 @@ def ingest_meteo(
         logger.info("60 seconds directory listing: %s", data_files_60s_periodicity)
 
     raise NotImplementedError("Not yet working")
+
+
+@dataclass
+class MeteorologicalFileMeta:
+    name: str
+    station_code: str
+    date: datetime.date
+
+
+STATION_CODE_PATTERN = r"(?P<station_code>\w{2}-\w{3})"
+PROCESSED_METEO_FILE_DATE_PATTERN = r"(?P<year>\d{4})(?P<month>\d{2})(?P<day>\d{2})"
+
+
+def extract_metadata_from_file_names(
+    file_names: list[str],
+) -> list[MeteorologicalFileMeta]:
+    "Extract metadata (station code and record date) from a list of meteorological data file names."
+
+    file_name_pattern = re.compile(
+        f"^{STATION_CODE_PATTERN}_BM_{PROCESSED_METEO_FILE_DATE_PATTERN}"
+    )
+
+    metadata: list[MeteorologicalFileMeta] = []
+    for file_name in file_names:
+        match = file_name_pattern.match(file_name)
+
+        # File does not match (probably not a data file)
+        if not match:
+            continue
+
+        station_code = str(match.group("station_code"))
+
+        # Extract the file's date component
+        year = int(match.group("year"))
+        month = int(match.group("month"))
+        day = int(match.group("day"))
+        file_date = datetime.date(year, month, day)
+
+        meta = MeteorologicalFileMeta(
+            name=file_name,
+            station_code=station_code,
+            date=file_date,
+        )
+        metadata.append(meta)
+
+    return metadata
+
+
+def filter_files(
+    file_metas: list[MeteorologicalFileMeta],
+    station_codes: list[str] | None,
+    from_date: datetime.date | None,
+    until_date: datetime.date | None,
+) -> list[MeteorologicalFileMeta]:
+    "Filter a list of weather station data files using the provided criteria."
+
+    filter_by_date = from_date is not None or until_date is not None
+
+    # If no filter criterion is provided, return all files
+    if not station_codes and not filter_by_date:
+        return file_metas
+
+    if station_codes:
+        allowed_station_codes = set(station_codes)
+
+    filtered_files: list[MeteorologicalFileMeta] = []
+
+    for meta in file_metas:
+        if station_codes:
+            if meta.station_code not in allowed_station_codes:
+                continue
+
+        if from_date is not None and meta.date < from_date:
+            continue
+
+        if until_date is not None and meta.date > until_date:
+            continue
+
+        filtered_files.append(meta)
+
+    return filtered_files
+
+
+def ingest_20_seconds_periodicity_weather_data(
+    buffer: IO, engine: Engine, station_id: int
+) -> None:
+    # Read the data from a CSV file
+    csv_reader = csv.DictReader(buffer, delimiter=",", strict=True)
+
+    if csv_reader.fieldnames is None:
+        raise Exception("Could not read variable names (column headers) from data file")
+
+    # Assemble list of columns
+    column_name_mapping: list[tuple[str, str]] = [
+        ("Irradiance", "irradiance"),
+        ("Unit_Temp_SR30", "unit_temperature_sr30"),
+        ("Error_Code_SR30", "error_code_sr30"),
+        ("LICOR_Irradiance", "licor_irradiance"),
+        ("CUV5_Irradiance", "cuv5_irradiance"),
+    ]
+    columns = [
+        Meteorological20SecondMeasurement.station_id.key,
+        Meteorological20SecondMeasurement.timestamp.key,
+    ] + [table_column_name for (_, table_column_name) in column_name_mapping]
+
+    logger.info("Using PostgreSQL's `COPY ... FROM STDIN` command to bulk insert data")
+
+    romania_time_zone = datetime.timezone(datetime.timedelta(hours=+2))
+
+    with engine.connect() as conn:
+        cursor = conn.connection.cursor()
+        with cursor.copy(
+            f"COPY {Meteorological20SecondMeasurement.__tablename__} ({', '.join(columns)}) FROM STDIN"
+        ) as copy:
+            for row in csv_reader:
+                timestamp = datetime.datetime.fromisoformat(row["TIMESTAMP"])
+                timestamp = timestamp.replace(tzinfo=romania_time_zone)
+
+                # Extract relevant columns from this row
+                measurement_values: list[str] = []
+                for column_name, _ in column_name_mapping:
+                    value = row[column_name]
+                    measurement_values.append(value)
+
+                copy.write_row((station_id, timestamp, *measurement_values))
+
+        conn.connection.commit()
+        cursor.close()
 
 
 @app.command(help="Import eddy covariance files from a local directory.")

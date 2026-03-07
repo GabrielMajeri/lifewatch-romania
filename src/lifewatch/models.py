@@ -61,6 +61,39 @@ class Station(Base, TimestampsMixin):
 
 
 @final
+class MeteorologicalStationInfo(Base, TimestampsMixin):
+    __tablename__ = "meteorological_station_infos"
+
+    station_id: Mapped[int] = mapped_column(ForeignKey(Station.id), primary_key=True)
+    station: Mapped[Station] = relationship()
+
+    code: Mapped[str] = mapped_column()
+    """Unique code identifying this station (and its directory name on the meteorological data FTP server).
+
+    Consists of the county name and location name, joined by a dash. Example: `AG-Dmb`
+    """
+
+    __table_args__: tuple[Constraint] = (
+        UniqueConstraint("code", name="meteorological_station_infos_code_unique"),
+    )
+
+
+@final
+class EddyCovarianceStationInfo(Base, TimestampsMixin):
+    __tablename__ = "eddy_covariance_station_infos"
+
+    station_id: Mapped[int] = mapped_column(ForeignKey(Station.id), primary_key=True)
+    station: Mapped[Station] = relationship()
+
+    code: Mapped[str] = mapped_column()
+    "Unique code identifying this station on the data collection FTP server."
+
+    __table_args__: tuple[Constraint] = (
+        UniqueConstraint("code", name="eddy_covariance_station_infos_code_unique"),
+    )
+
+
+@final
 class Meteorological20SecondMeasurement(Base):
     __tablename__ = "meteorological_20s_measurements"
 
