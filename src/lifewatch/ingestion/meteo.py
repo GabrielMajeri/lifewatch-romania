@@ -3,12 +3,13 @@ from csv import DictReader
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from enum import StrEnum
+from functools import partial
 from io import BytesIO, StringIO
 import logging
 from pathlib import Path
 import re
 from time import perf_counter
-from typing import IO, cast
+from typing import IO, Callable, cast
 
 from sqlalchemy import Engine, exists, insert, select
 from sqlalchemy.orm import Session
@@ -17,6 +18,8 @@ from ..ftp import FTPCredentials, Fixed_FTP_TLS
 from ..models import (
     IngestedFile,
     Meteorological20SecondMeasurement,
+    Meteorological30SecondMeasurement,
+    Meteorological60SecondMeasurement,
     MeteorologicalStationInfo,
     Server,
 )
@@ -174,7 +177,15 @@ def _ingest_meteo_data_from_local_file(
 
     if metadata.period == MeteorologicalVariablePeriodicity.EVERY_20_SECONDS:
         with open(file_path, "r") as file:
-            ingest_20_seconds_periodicity_weather_data(file, session, station_id)
+            _ingest_20_seconds_periodicity_meteorological_data(
+                file, session, station_id
+            )
+
+    elif metadata.period == MeteorologicalVariablePeriodicity.EVERY_30_SECONDS:
+        with open(file_path, "r") as file:
+            _ingest_30_seconds_periodicity_meteorological_data(
+                file, session, station_id
+            )
 
     else:
         raise NotImplementedError(
@@ -234,108 +245,119 @@ def ingest_meteo_data_from_ftp_server(
             ", ".join(p.value for p in filters.periodicities),
         )
 
+        ingest_data_with_periodicity = partial(
+            _ingest_meteo_data_from_ftp_with_periodicity,
+            ftp,
+            server_id,
+            processed_data_dir,
+            processed_data_dir_entries,
+            filters,
+            station_code_mapping,
+            engine,
+        )
+
         if MeteorologicalVariablePeriodicity.EVERY_20_SECONDS in filters.periodicities:
-            if "20" not in processed_data_dir_entries:
-                raise RuntimeError(
-                    "Directory for variables with periodicity of 20 seconds not found"
-                )
+            ingest_data_with_periodicity(
+                20, _ingest_20_seconds_periodicity_meteorological_data
+            )
+            response = ftp.cwd("..")
 
-            response = ftp.cwd("20")
-            logger.debug("FTP change current directory response: %s", response)
+        if MeteorologicalVariablePeriodicity.EVERY_30_SECONDS in filters.periodicities:
+            ingest_data_with_periodicity(
+                30, _ingest_30_seconds_periodicity_meteorological_data
+            )
+            response = ftp.cwd("..")
 
-            data_files_20s_periodicity = ftp.nlst()
-            # logger.debug("20 seconds directory listing: %s", data_files_20s_periodicity)
-
-            # Extract station identifiers and file dates
-            files_metadata = [
-                extract_meteo_file_metadata(file_name)
-                for file_name in data_files_20s_periodicity
-            ]
-
-            files_and_metadata = zip(data_files_20s_periodicity, files_metadata)
-
-            # Skip over files whose names don't match meteo data file pattern
-            # (hence we cannot determine metadata for them)
-            files_with_metadata = filter(lambda p: p[1] is not None, files_and_metadata)
-
-            files_with_metadata = cast(
-                Iterable[tuple[str, MeteorologicalFileMetadata]], files_with_metadata
+        if MeteorologicalVariablePeriodicity.EVERY_60_SECONDS in filters.periodicities:
+            ingest_data_with_periodicity(
+                60, _ingest_60_seconds_periodicity_meteorological_data
             )
 
-            # Filter files based on user-provided criteria
-            files_with_metadata = list(_filter_files(files_with_metadata, filters))
 
-            if not files_with_metadata:
-                raise ValueError(
-                    "No data files were found matching the provided filters"
-                )
+def _ingest_meteo_data_from_ftp_with_periodicity(
+    ftp: Fixed_FTP_TLS,
+    server_id: int,
+    processed_data_dir: str,
+    processed_data_dir_entries: list[str],
+    filters: MeteorologicalDataFilters,
+    station_code_mapping: StationCodeMapping,
+    engine: Engine,
+    periodicity: int,
+    ingest_data: Callable[[IO, Session, int], None],
+) -> None:
+    periodicity_str = str(periodicity)
+    if periodicity_str not in processed_data_dir_entries:
+        raise RuntimeError(
+            f"Directory for variables with periodicity of {periodicity} seconds not found"
+        )
 
+    response = ftp.cwd(periodicity_str)
+    logger.debug("FTP change current directory response: %s", response)
+
+    data_files = ftp.nlst()
+    # logger.debug("%d seconds directory listing: %s", periodicity, data_files_20s_periodicity)
+
+    # Extract station identifiers and file dates
+    files_metadata = [
+        extract_meteo_file_metadata(file_name) for file_name in data_files
+    ]
+
+    files_and_metadata = zip(data_files, files_metadata)
+
+    # Skip over files whose names don't match meteo data file pattern
+    # (hence we cannot determine metadata for them)
+    files_with_metadata = filter(lambda p: p[1] is not None, files_and_metadata)
+
+    files_with_metadata = cast(
+        Iterable[tuple[str, MeteorologicalFileMetadata]], files_with_metadata
+    )
+
+    # Filter files based on user-provided criteria
+    files_with_metadata = list(_filter_files(files_with_metadata, filters))
+
+    if not files_with_metadata:
+        raise ValueError("No data files were found matching the provided filters")
+
+    logger.info(
+        "Found %d files matching provided filters",
+        len(files_with_metadata),
+    )
+
+    station_ids = [
+        station_code_mapping.get(metadata[1].station_code)
+        for metadata in files_with_metadata
+    ]
+
+    logger.info("Beginning to read/ingest files")
+
+    with Session(engine) as session:
+        for (file_name, _metadata), station_id in zip(files_with_metadata, station_ids):
+            logger.info("Processing file '%s'", file_name)
+
+            path = f"/{processed_data_dir}/{periodicity}/{file_name}"
+            if _check_file_already_ingested(session, server_id, path):
+                logger.warning("Skipping already ingested file '%s'...", path)
+                continue
+
+            retrieve_start_time = perf_counter()
+
+            buffer = BytesIO()
+            response = ftp.retrbinary(f"RETR {file_name}", buffer.write)
+            logger.debug("FTP retrieve file response: %s", response)
+
+            retrieve_end_time = perf_counter()
+            retrieve_duration = retrieve_end_time - retrieve_start_time
             logger.info(
-                "Found %d files matching provided filters",
-                len(files_with_metadata),
+                "Retrieving file binary contents took %.2f seconds",
+                retrieve_duration,
             )
 
-            station_ids = [
-                station_code_mapping.get(metadata[1].station_code)
-                for metadata in files_with_metadata
-            ]
+            file_contents = buffer.getvalue().decode("utf-8")
+            string_io = StringIO(file_contents)
 
-            logger.info("Beginning to read/ingest files")
+            ingest_data(string_io, session, station_id)
 
-            with Session(engine) as session:
-                for (file_name, _metadata), station_id in zip(
-                    files_with_metadata, station_ids
-                ):
-                    logger.info("Processing file '%s'", file_name)
-
-                    path = f"/{processed_data_dir}/20/{file_name}"
-                    if _check_file_already_ingested(session, server_id, path):
-                        logger.warning("Skipping already ingested file '%s'...", path)
-                        continue
-
-                    retrieve_start_time = perf_counter()
-
-                    buffer = BytesIO()
-                    response = ftp.retrbinary(f"RETR {file_name}", buffer.write)
-                    logger.debug("FTP retrieve file response: %s", response)
-
-                    retrieve_end_time = perf_counter()
-                    retrieve_duration = retrieve_end_time - retrieve_start_time
-                    logger.info(
-                        "Retrieving file binary contents took %.3g seconds",
-                        retrieve_duration,
-                    )
-
-                    file_contents = buffer.getvalue().decode("utf-8")
-                    string_io = StringIO(file_contents)
-
-                    ingest_20_seconds_periodicity_weather_data(
-                        string_io, session, station_id
-                    )
-
-                    _record_ingested_file(session, server_id, path)
-
-        return
-
-        if "30" not in processed_data_dir_entries:
-            raise RuntimeError(
-                "Directory for variables with periodicity of 30 seconds not found"
-            )
-
-        response = ftp.cwd("../30")
-
-        data_files_30s_periodicity = ftp.nlst()
-        logger.info("30 seconds directory listing: %s", data_files_30s_periodicity)
-
-        if "60" not in processed_data_dir_entries:
-            raise RuntimeError(
-                "Directory for variables with periodicity of 60 seconds not found"
-            )
-
-        response = ftp.cwd("../60")
-
-        data_files_60s_periodicity = ftp.nlst()
-        logger.info("60 seconds directory listing: %s", data_files_60s_periodicity)
+            _record_ingested_file(session, server_id, path)
 
 
 def _get_or_create_server(engine: Engine, host: str) -> int:
@@ -521,23 +543,23 @@ def _filter_files(
         yield file_name, meta
 
 
-def ingest_20_seconds_periodicity_weather_data(
-    buffer: IO, session: Session, station_id: int
+def _ingest_meteorological_data(
+    buffer: IO,
+    session: Session,
+    station_id: int,
+    column_name_mapping: list[tuple[str, str]],
+    destination_table: type[
+        Meteorological20SecondMeasurement
+        | Meteorological30SecondMeasurement
+        | Meteorological60SecondMeasurement
+    ],
+    process_column_value: Callable[[str, str], str | None] | None = None,
 ) -> None:
-    # Read the data from a CSV file
+    # Read the data from the provided CSV file
     csv_reader = DictReader(buffer, delimiter=",", strict=True)
 
     if csv_reader.fieldnames is None:
         raise Exception("Could not read variable names (column headers) from data file")
-
-    # Assemble list of columns
-    column_name_mapping: list[tuple[str, str]] = [
-        ("Irradiance", "irradiance"),
-        ("Unit_Temp_SR30", "unit_temperature_sr30"),
-        ("Error_Code_SR30", "error_code_sr30"),
-        ("LICOR_Irradiance", "licor_irradiance"),
-        ("CUV5_Irradiance", "cuv5_irradiance"),
-    ]
 
     required_columns = set(
         ["TIMESTAMP"] + [csv_column_name for csv_column_name, _ in column_name_mapping]
@@ -550,8 +572,8 @@ def ingest_20_seconds_periodicity_weather_data(
         )
 
     columns = [
-        Meteorological20SecondMeasurement.station_id.key,
-        Meteorological20SecondMeasurement.timestamp.key,
+        destination_table.station_id.key,
+        destination_table.timestamp.key,
     ] + [table_column_name for (_, table_column_name) in column_name_mapping]
 
     logger.info("Using PostgreSQL's `COPY ... FROM STDIN` command to bulk insert data")
@@ -564,21 +586,19 @@ def ingest_20_seconds_periodicity_weather_data(
     connection = session.connection()
     cursor = connection.connection.cursor()
     with cursor.copy(
-        f"COPY {Meteorological20SecondMeasurement.__tablename__} ({', '.join(columns)}) FROM STDIN"
+        f"COPY {destination_table.__tablename__} ({', '.join(columns)}) FROM STDIN"
     ) as copy:
         for row in csv_reader:
             timestamp = datetime.fromisoformat(row["TIMESTAMP"])
             timestamp = timestamp.replace(tzinfo=romania_time_zone)
 
             # Extract relevant columns from this row
-            measurement_values: list[str] = []
+            measurement_values: list[str | None] = []
             for column_name, _ in column_name_mapping:
                 value = row[column_name]
 
-                # For some strange reason, in some files,
-                # this column is a float (usually 0)
-                if column_name == "Error_Code_SR30":
-                    value = str(int(float(value)))
+                if process_column_value is not None:
+                    value = process_column_value(column_name, value)
 
                 measurement_values.append(value)
 
@@ -590,7 +610,113 @@ def ingest_20_seconds_periodicity_weather_data(
     copy_end_time = perf_counter()
     copy_duration = copy_end_time - copy_start_time
     logger.info(
-        "Took %.3g seconds to copy %d rows of data into the database",
+        "Took %.3g seconds to insert %d rows of data into the database",
         copy_duration,
         num_rows,
+    )
+
+
+def _ingest_20_seconds_periodicity_meteorological_data(
+    buffer: IO, session: Session, station_id: int
+) -> None:
+    # Assemble list of columns
+    column_name_mapping: list[tuple[str, str]] = [
+        ("Irradiance", "irradiance"),
+        ("Unit_Temp_SR30", "unit_temperature_sr30"),
+        ("Error_Code_SR30", "error_code_sr30"),
+        ("LICOR_Irradiance", "licor_irradiance"),
+        ("CUV5_Irradiance", "cuv5_irradiance"),
+    ]
+
+    def process_column_value(column_name: str, value: str) -> str:
+        # For some strange reason, in some files,
+        # this column is a float (usually 0)
+        if column_name == "Error_Code_SR30":
+            value = str(int(float(value)))
+
+        return value
+
+    _ingest_meteorological_data(
+        buffer,
+        session,
+        station_id,
+        column_name_mapping,
+        Meteorological20SecondMeasurement,
+        process_column_value,
+    )
+
+
+def _ingest_30_seconds_periodicity_meteorological_data(
+    buffer: IO, session: Session, station_id: int
+) -> None:
+    column_name_mapping: list[tuple[str, str]] = [
+        ("Wind_Direction", "wind_direction"),
+        ("Wind_Speed", "wind_speed"),
+        ("Present_Weather_Code", "current_weather_code"),
+        ("Visibility", "visibility"),
+        ("Particles_Count", "particles_count"),
+        ("Intensity", "intensity"),
+        ("Air_Temp_CS125", "air_temp_cs125"),
+        ("Air_Pressure", "air_pressure"),
+        ("Air_Humidity", "air_humidity"),
+        ("Air_Temperature", "air_temperature"),
+        ("DataLogger_Voltage", "data_logger_voltage"),
+    ]
+
+    def process_column_value(column_name: str, value: str) -> str | None:
+        # Sometimes, this is NAN
+        if column_name == "Wind_Direction":
+            if value.lower() == "nan":
+                return None
+
+        # In some files, this column is a float with the special value "-1.0"
+        if column_name == "Present_Weather_Code":
+            return str(int(float(value)))
+
+        # In some files, this column has an extra ".0" for all values
+        # (but they're actually integers)
+        if column_name == "Visibility":
+            return str(int(float(value)))
+
+        # In some files, this column is a float with the special value "-99.0"
+        if column_name == "Particles_Count":
+            return str(int(float(value)))
+
+        return value
+
+    _ingest_meteorological_data(
+        buffer,
+        session,
+        station_id,
+        column_name_mapping,
+        Meteorological30SecondMeasurement,
+        process_column_value,
+    )
+
+
+def _ingest_60_seconds_periodicity_meteorological_data(
+    buffer: IO, session: Session, station_id: int
+) -> None:
+    column_name_mapping: list[tuple[str, str]] = [
+        ("Snow_Depth", "snow_depth"),
+        ("Total_Rain", "total_rain"),
+        ("Soil_Temperature", "soil_temperature"),
+        ("Soil_Humidity", "soil_humidity"),
+        ("Measurement_Quality_SR50A", "measurement_quality_sr50a"),
+    ]
+
+    def process_column_value(column_name: str, value: str) -> str:
+        # Sometimes, this is NAN
+        if column_name == "Measurement_Quality_SR50A":
+            return str(int(float(value)))
+
+        return value
+
+    _ingest_meteorological_data(
+        buffer,
+        session,
+        station_id,
+        column_name_mapping,
+        Meteorological60SecondMeasurement,
+        process_column_value,
     )
