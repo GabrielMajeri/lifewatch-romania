@@ -7,6 +7,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     Interval,
     MetaData,
@@ -28,6 +29,40 @@ class TimestampsMixin:
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=now(), onupdate=now()
+    )
+
+
+@final
+class Server(Base):
+    "Server from which we read data files."
+
+    __tablename__ = "servers"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    hostname: Mapped[str] = mapped_column(nullable=False)
+
+    files: Mapped["IngestedFile"] = relationship(back_populates="server")
+
+    __table_args__: tuple[Constraint] = (
+        UniqueConstraint("hostname", name="servers_name_unique"),
+    )
+
+
+@final
+class IngestedFile(Base):
+    "Tracks data files which have been already inserted into the database."
+
+    __tablename__ = "ingested_files"
+
+    server_id: Mapped[int] = mapped_column(ForeignKey(Server.id), primary_key=True)
+    server: Mapped[Server] = relationship()
+
+    path: Mapped[str] = mapped_column(primary_key=True)
+
+    processed_at: Mapped[datetime] = mapped_column(DateTime, default=now())
+
+    __table_args__: tuple[Constraint | Index] = (
+        Index("ingested_files_server_id", "server_id"),
     )
 
 
@@ -62,6 +97,8 @@ class Station(Base, TimestampsMixin):
 
 @final
 class MeteorologicalStationInfo(Base, TimestampsMixin):
+    "Extra fields specific to meteorological stations."
+
     __tablename__ = "meteorological_station_infos"
 
     station_id: Mapped[int] = mapped_column(ForeignKey(Station.id), primary_key=True)
@@ -80,6 +117,8 @@ class MeteorologicalStationInfo(Base, TimestampsMixin):
 
 @final
 class EddyCovarianceStationInfo(Base, TimestampsMixin):
+    "Extra fields specific to eddy covariance stations."
+
     __tablename__ = "eddy_covariance_station_infos"
 
     station_id: Mapped[int] = mapped_column(ForeignKey(Station.id), primary_key=True)

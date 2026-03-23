@@ -10,11 +10,16 @@ import re
 from time import perf_counter
 from typing import IO, cast
 
-from sqlalchemy import Engine, select
+from sqlalchemy import Engine, exists, insert, select
 from sqlalchemy.orm import Session
 
 from ..ftp import FTPCredentials, Fixed_FTP_TLS
-from ..models import Meteorological20SecondMeasurement, MeteorologicalStationInfo
+from ..models import (
+    IngestedFile,
+    Meteorological20SecondMeasurement,
+    MeteorologicalStationInfo,
+    Server,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -42,95 +47,118 @@ def ingest_meteo_data_from_local_path(
     if not path.exists():
         raise Exception(f"Path doesn't exist or isn't readable: '{path}'")
 
+    server_id = _get_or_create_local_server(engine)
+
     station_code_mapping = StationCodeMapping(engine, filters.station_codes)
 
     if path.is_file():
-        file_name = path.name
+        with Session(engine) as session:
+            if _check_file_already_ingested(session, server_id, path.resolve()):
+                logger.warning("Skipping already ingested file %s", path)
+                return
 
-        metadata = extract_meteo_file_metadata(file_name)
+            file_name = path.name
 
-        if not metadata:
-            logger.error(
-                f"Failed to extract metadata from data file name : '{file_name}'.\nIs the path pointing to a valid processed meteo data CSV file?"
-            )
-            return
-
-        if metadata.period not in filters.periodicities:
-            logger.warning(
-                "Not ingesting data from file since its periodicty is '%s', which is not in the list of selected periodicities",
-                metadata.period,
-            )
-            return
-
-        if filters.station_codes and metadata.station_code not in filters.station_codes:
-            logger.warning(
-                "Not ingesting data from file since its station code is '%s', which is not in the list of selected station codes",
-                metadata.station_code,
-            )
-            return
-
-        if filters.from_date and metadata.date < filters.from_date:
-            logger.warning(
-                "Not ingesting data from file since its date is %s, which is before the 'from date' %s",
-                metadata.date,
-                filters.from_date,
-            )
-            return
-
-        if filters.until_date and metadata.date > filters.until_date:
-            logger.warning(
-                "Not ingesting data from file since its date is %s, which is after the 'until date'",
-                metadata.date,
-                filters.until_date,
-            )
-            return
-
-        _ingest_meteo_data_from_local_file(path, metadata, engine, station_code_mapping)
-
-    elif path.is_dir():
-        for file_path in path.glob("**"):
-            if not file_path.is_file():
-                continue
-
-            # Try extracting metadata from this file, to check if it is a meteo data file
-            file_name = file_path.name
             metadata = extract_meteo_file_metadata(file_name)
 
             if not metadata:
-                logger.warning(
-                    "Skipping file '%s', since its name doesn't match pattern",
-                    file_path,
+                logger.error(
+                    f"Failed to extract metadata from data file name: '{file_name}'.\nIs the path pointing to a valid processed meteo data CSV file?"
                 )
-                continue
+                return
 
             if metadata.period not in filters.periodicities:
-                logger.info("Skipping file '%s' due to periodicity filter", file_path)
-                continue
+                logger.warning(
+                    "Not ingesting data from file since its periodicty is '%s', which is not in the list of selected periodicities",
+                    metadata.period,
+                )
+                return
 
             if (
                 filters.station_codes
                 and metadata.station_code not in filters.station_codes
             ):
                 logger.warning(
-                    "Skipping file '%s' due to station code filter", file_path
+                    "Not ingesting data from file since its station code is '%s', which is not in the list of selected station codes",
+                    metadata.station_code,
                 )
-                continue
+                return
 
             if filters.from_date and metadata.date < filters.from_date:
                 logger.warning(
-                    "Skipping file '%s' due to 'from date' filter", file_path
+                    "Not ingesting data from file since its date is %s, which is before the 'from date' %s",
+                    metadata.date,
+                    filters.from_date,
                 )
-                continue
+                return
 
             if filters.until_date and metadata.date > filters.until_date:
                 logger.warning(
-                    "Skipping file '%s' due to 'until date' filter", file_path
+                    "Not ingesting data from file since its date is %s, which is after the 'until date'",
+                    metadata.date,
+                    filters.until_date,
                 )
-                continue
+                return
 
             _ingest_meteo_data_from_local_file(
-                file_path, metadata, engine, station_code_mapping
+                path, metadata, session, station_code_mapping
             )
+
+            _record_ingested_file(session, server_id, path)
+
+    elif path.is_dir():
+        with Session(engine) as session:
+            for file_path in path.glob("**"):
+                if not file_path.is_file():
+                    continue
+
+                if _check_file_already_ingested(session, server_id, path.resolve()):
+                    logger.warning("Skipping already ingested file %s", path)
+                    return
+
+                # Try extracting metadata from this file, to check if it is a meteo data file
+                file_name = file_path.name
+                metadata = extract_meteo_file_metadata(file_name)
+
+                if not metadata:
+                    logger.warning(
+                        "Skipping file '%s', since its name doesn't match pattern",
+                        file_path,
+                    )
+                    continue
+
+                if metadata.period not in filters.periodicities:
+                    logger.info(
+                        "Skipping file '%s' due to periodicity filter", file_path
+                    )
+                    continue
+
+                if (
+                    filters.station_codes
+                    and metadata.station_code not in filters.station_codes
+                ):
+                    logger.warning(
+                        "Skipping file '%s' due to station code filter", file_path
+                    )
+                    continue
+
+                if filters.from_date and metadata.date < filters.from_date:
+                    logger.warning(
+                        "Skipping file '%s' due to 'from date' filter", file_path
+                    )
+                    continue
+
+                if filters.until_date and metadata.date > filters.until_date:
+                    logger.warning(
+                        "Skipping file '%s' due to 'until date' filter", file_path
+                    )
+                    continue
+
+                _ingest_meteo_data_from_local_file(
+                    file_path, metadata, session, station_code_mapping
+                )
+
+                _record_ingested_file(session, server_id, path)
 
     else:
         raise Exception("Path is neither a regular file, nor a directory")
@@ -139,14 +167,14 @@ def ingest_meteo_data_from_local_path(
 def _ingest_meteo_data_from_local_file(
     file_path: Path,
     metadata: MeteorologicalFileMetadata,
-    engine: Engine,
+    session: Session,
     station_code_mapping: StationCodeMapping,
 ) -> None:
     station_id = station_code_mapping.get(metadata.station_code)
 
     if metadata.period == MeteorologicalVariablePeriodicity.EVERY_20_SECONDS:
         with open(file_path, "r") as file:
-            ingest_20_seconds_periodicity_weather_data(file, engine, station_id)
+            ingest_20_seconds_periodicity_weather_data(file, session, station_id)
 
     else:
         raise NotImplementedError(
@@ -159,7 +187,11 @@ def ingest_meteo_data_from_ftp_server(
     filters: MeteorologicalDataFilters,
     engine: Engine,
 ) -> None:
-    station_code_mapping = StationCodeMapping(engine, filters.station_codes)
+    station_code_mapping = StationCodeMapping(
+        engine, selected_station_codes=filters.station_codes
+    )
+
+    server_id = _get_or_create_server(engine, ftp_credentials.host)
 
     logger.info(
         "Connecting to FTP server `%s:%d`...",
@@ -250,30 +282,38 @@ def ingest_meteo_data_from_ftp_server(
 
             logger.info("Beginning to read/ingest files")
 
-            for (file_name, _metadata), station_id in zip(
-                files_with_metadata, station_ids
-            ):
-                logger.info("Processing file '%s'", file_name)
+            with Session(engine) as session:
+                for (file_name, _metadata), station_id in zip(
+                    files_with_metadata, station_ids
+                ):
+                    logger.info("Processing file '%s'", file_name)
 
-                retrieve_start_time = perf_counter()
+                    path = f"/{processed_data_dir}/20/{file_name}"
+                    if _check_file_already_ingested(session, server_id, path):
+                        logger.warning("Skipping already ingested file '%s'...", path)
+                        continue
 
-                buffer = BytesIO()
-                response = ftp.retrbinary(f"RETR {file_name}", buffer.write)
-                logger.debug("FTP retrieve file response: %s", response)
+                    retrieve_start_time = perf_counter()
 
-                retrieve_end_time = perf_counter()
-                retrieve_duration = retrieve_end_time - retrieve_start_time
-                logger.info(
-                    "Retrieving file binary contents took %.3g seconds",
-                    retrieve_duration,
-                )
+                    buffer = BytesIO()
+                    response = ftp.retrbinary(f"RETR {file_name}", buffer.write)
+                    logger.debug("FTP retrieve file response: %s", response)
 
-                file_contents = buffer.getvalue().decode("utf-8")
-                string_io = StringIO(file_contents)
+                    retrieve_end_time = perf_counter()
+                    retrieve_duration = retrieve_end_time - retrieve_start_time
+                    logger.info(
+                        "Retrieving file binary contents took %.3g seconds",
+                        retrieve_duration,
+                    )
 
-                ingest_20_seconds_periodicity_weather_data(
-                    string_io, engine, station_id
-                )
+                    file_contents = buffer.getvalue().decode("utf-8")
+                    string_io = StringIO(file_contents)
+
+                    ingest_20_seconds_periodicity_weather_data(
+                        string_io, session, station_id
+                    )
+
+                    _record_ingested_file(session, server_id, path)
 
         return
 
@@ -296,6 +336,54 @@ def ingest_meteo_data_from_ftp_server(
 
         data_files_60s_periodicity = ftp.nlst()
         logger.info("60 seconds directory listing: %s", data_files_60s_periodicity)
+
+
+def _get_or_create_server(engine: Engine, host: str) -> int:
+    """Returns the ID of the server entity corresponding to the given host,
+    creating it if it doesn't exist.
+    """
+    with Session(engine) as session:
+        stmt = select(Server.id).where(Server.hostname == host)
+
+        server_id = session.execute(stmt).scalar_one_or_none()
+        if server_id is not None:
+            return server_id
+
+        server_id = session.scalars(
+            insert(Server).returning(Server.id), [{"hostname": host}]
+        ).one()
+        session.commit()
+
+        return server_id
+
+
+LOCAL_SERVER_NAME = "localhost"
+
+
+def _get_or_create_local_server(engine: Engine) -> int:
+    """Returns the ID of the server entity corresponding to this host,
+    creating it if it doesn't exist.
+    """
+    return _get_or_create_server(engine, LOCAL_SERVER_NAME)
+
+
+def _check_file_already_ingested(
+    session: Session, server_id: int, path: str | Path
+) -> bool:
+    "Checks whether the indicated file path, on the given server, has already been ingested / harvested / processed."
+    return bool(
+        session.scalar(
+            exists()
+            .where(IngestedFile.server_id == server_id, IngestedFile.path == str(path))
+            .select()
+        )
+    )
+
+
+def _record_ingested_file(session: Session, server_id: int, path: str | Path) -> None:
+    "Records an ingested file's path to the database."
+    session.execute(insert(IngestedFile), [{"server_id": server_id, "path": str(path)}])
+    session.commit()
 
 
 class StationCodeMapping:
@@ -434,7 +522,7 @@ def _filter_files(
 
 
 def ingest_20_seconds_periodicity_weather_data(
-    buffer: IO, engine: Engine, station_id: int
+    buffer: IO, session: Session, station_id: int
 ) -> None:
     # Read the data from a CSV file
     csv_reader = DictReader(buffer, delimiter=",", strict=True)
@@ -473,32 +561,31 @@ def ingest_20_seconds_periodicity_weather_data(
     copy_start_time = perf_counter()
     num_rows = 0
 
-    with engine.connect() as conn:
-        cursor = conn.connection.cursor()
-        with cursor.copy(
-            f"COPY {Meteorological20SecondMeasurement.__tablename__} ({', '.join(columns)}) FROM STDIN"
-        ) as copy:
-            for row in csv_reader:
-                timestamp = datetime.fromisoformat(row["TIMESTAMP"])
-                timestamp = timestamp.replace(tzinfo=romania_time_zone)
+    connection = session.connection()
+    cursor = connection.connection.cursor()
+    with cursor.copy(
+        f"COPY {Meteorological20SecondMeasurement.__tablename__} ({', '.join(columns)}) FROM STDIN"
+    ) as copy:
+        for row in csv_reader:
+            timestamp = datetime.fromisoformat(row["TIMESTAMP"])
+            timestamp = timestamp.replace(tzinfo=romania_time_zone)
 
-                # Extract relevant columns from this row
-                measurement_values: list[str] = []
-                for column_name, _ in column_name_mapping:
-                    value = row[column_name]
+            # Extract relevant columns from this row
+            measurement_values: list[str] = []
+            for column_name, _ in column_name_mapping:
+                value = row[column_name]
 
-                    # For some strange reason, in some files,
-                    # this column is a float (usually 0)
-                    if column_name == "Error_Code_SR30":
-                        value = str(int(float(value)))
+                # For some strange reason, in some files,
+                # this column is a float (usually 0)
+                if column_name == "Error_Code_SR30":
+                    value = str(int(float(value)))
 
-                    measurement_values.append(value)
+                measurement_values.append(value)
 
-                copy.write_row((station_id, timestamp, *measurement_values))
-                num_rows += 1
+            copy.write_row((station_id, timestamp, *measurement_values))
+            num_rows += 1
 
-        conn.connection.commit()
-        cursor.close()
+    cursor.close()
 
     copy_end_time = perf_counter()
     copy_duration = copy_end_time - copy_start_time

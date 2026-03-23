@@ -11,7 +11,7 @@ import coloredlogs
 from dotenv import load_dotenv
 from paramiko import Ed25519Key, PKey, SFTPClient, SSHClient
 from rich.console import Console
-from sqlalchemy import Engine, create_engine, select
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 import typer
 
@@ -21,7 +21,6 @@ from ..ingestion.meteo import (
     MeteorologicalVariablePeriodicity,
 )
 from ..models import (
-    MeteorologicalStationInfo,
     Station,
 )
 
