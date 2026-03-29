@@ -1,5 +1,24 @@
 name,meteorological_station_code,eddy_covariance_station_code
+"Stația 1 - Ilfov, Cornetu",IF-Cor,
+"Stația 2 - Teleorman, Drăgănești-Vlașca, SCDA Teleorman",TR-Drv,
+"Stația 3 - Tulcea, Enisala, INCDD Tulcea",TL-Sar,
+"Stația 4 - Brăila, Mărașu, Insula Mare a Brăilei",BR-Mar,
+"Stația 5 - Brăila, orașul Brăila",BR-Bra,
+"Stația 6 - Tulcea, Malcoci, SCDA Tulcea",TL-Mal,
+"Stația 7 - Călarași, comuna Ștefan cel Mare, ICAS Bărăganu",CL-Scm,
+"Stația 8 - Prahova, comuna Mihăești, ICAS Mihăești",AG-Mih,
+"Stația 9 - Prahova, comuna Berceni, ICAS Ploiești",PH-Ber,
 "Stația 10 - Argeș, Dâmbăvicioara",AG-Dmb,
+"Stația 11 - Mehedinți, Orșova, Stațiunea de cercetări geografice Orșova",MH-Ors,
+"Stația 12 - Giurgiu, comuna Bulbucata, sat Făcău, ABA Argeș",GR-Bul,
+"Stația 13 - Ilfov, Voluntari",IF-Ste,
+"Stația 14 - Dâmbovița, comuna Moroeni",DB-Mor,
+"Stația 15 - Hunedoara, comuna Uricani, cabana Buta",HD-Uri,
+"Stația 16 - Hunedoara, comuna Sântămaria-Orlea, satul Sânpetru",HD-San,
+"Stația 17 - Bihor, Padiș, Centrul de vizitare Padiș",BH-Pad,
+"Stația 18 - Tulcea, Sfântu Gheorghe",TL-Sfg,
+"Stația 19 - Brașov, Centrul de Afaceri, Transfer Tehnologic și Incubator de Afaceri (CATTIA) Brașov",BV-Brv,
+"Stația 20 - Giurgiu, Parcul Național Comana",GR-Com,
 "Brașov",,bv
 Enisala,,enisala
 "Insula Mare a Brăilei",,imb
