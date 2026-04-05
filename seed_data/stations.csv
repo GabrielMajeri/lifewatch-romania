@@ -1,4 +1,4 @@
-name,meteorological_station_code,eddy_covariance_station_code
+name,meteorological_station_code,eddy_covariance_sftp_directory_name,eddy_covariance_station_code
 "Stația 1 - Ilfov, Cornetu",IF-Cor,
 "Stația 2 - Teleorman, Drăgănești-Vlașca, SCDA Teleorman",TR-Drv,
 "Stația 3 - Tulcea, Enisala, INCDD Tulcea",TL-Sar,
@@ -19,7 +19,8 @@ name,meteorological_station_code,eddy_covariance_station_code
 "Stația 18 - Tulcea, Sfântu Gheorghe",TL-Sfg,
 "Stația 19 - Brașov, Centrul de Afaceri, Transfer Tehnologic și Incubator de Afaceri (CATTIA) Brașov",BV-Brv,
 "Stația 20 - Giurgiu, Parcul Național Comana",GR-Com,
-"Brașov",,bv
-Enisala,,enisala
-"Insula Mare a Brăilei",,imb
-"Polizești",,poli
+"Brașov",,bv,01014
+"Comana",,com,01005
+Enisala,,enisala,01015
+"Insula Mare a Brăilei",,imb,01016
+"Polizești",,poli,01004

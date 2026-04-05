@@ -11,17 +11,22 @@ import re
 from time import perf_counter
 from typing import IO, Callable, cast
 
-from sqlalchemy import Engine, exists, insert, select
+from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
 from ..ftp import FTPCredentials, Fixed_FTP_TLS
 from ..models import (
-    IngestedFile,
     Meteorological20SecondMeasurement,
     Meteorological30SecondMeasurement,
     Meteorological60SecondMeasurement,
     MeteorologicalStationInfo,
-    Server,
+)
+
+from .common import (
+    check_file_already_ingested,
+    get_or_create_local_server,
+    get_or_create_server,
+    record_ingested_file,
 )
 
 
@@ -50,19 +55,21 @@ def ingest_meteo_data_from_local_path(
     if not path.exists():
         raise Exception(f"Path doesn't exist or isn't readable: '{path}'")
 
-    server_id = _get_or_create_local_server(engine)
+    server_id = get_or_create_local_server(engine)
 
-    station_code_mapping = StationCodeMapping(engine, filters.station_codes)
+    station_code_mapping = _MeteorologicalStationCodeMapping(
+        engine, filters.station_codes
+    )
 
     if path.is_file():
         with Session(engine) as session:
-            if _check_file_already_ingested(session, server_id, path.resolve()):
+            if check_file_already_ingested(session, server_id, path.resolve()):
                 logger.warning("Skipping already ingested file %s", path)
                 return
 
             file_name = path.name
 
-            metadata = extract_meteo_file_metadata(file_name)
+            metadata = _extract_meteo_file_metadata(file_name)
 
             if not metadata:
                 logger.error(
@@ -72,7 +79,7 @@ def ingest_meteo_data_from_local_path(
 
             if metadata.period not in filters.periodicities:
                 logger.warning(
-                    "Not ingesting data from file since its periodicty is '%s', which is not in the list of selected periodicities",
+                    "Not ingesting data from file since its periodicity is '%s', which is not in the list of selected periodicities",
                     metadata.period,
                 )
                 return
@@ -107,7 +114,7 @@ def ingest_meteo_data_from_local_path(
                 path, metadata, session, station_code_mapping
             )
 
-            _record_ingested_file(session, server_id, path)
+            record_ingested_file(session, server_id, path)
 
     elif path.is_dir():
         with Session(engine) as session:
@@ -115,13 +122,13 @@ def ingest_meteo_data_from_local_path(
                 if not file_path.is_file():
                     continue
 
-                if _check_file_already_ingested(session, server_id, path.resolve()):
+                if check_file_already_ingested(session, server_id, path.resolve()):
                     logger.warning("Skipping already ingested file %s", path)
                     return
 
                 # Try extracting metadata from this file, to check if it is a meteo data file
                 file_name = file_path.name
-                metadata = extract_meteo_file_metadata(file_name)
+                metadata = _extract_meteo_file_metadata(file_name)
 
                 if not metadata:
                     logger.warning(
@@ -161,7 +168,7 @@ def ingest_meteo_data_from_local_path(
                     file_path, metadata, session, station_code_mapping
                 )
 
-                _record_ingested_file(session, server_id, path)
+                record_ingested_file(session, server_id, path)
 
     else:
         raise Exception("Path is neither a regular file, nor a directory")
@@ -169,9 +176,9 @@ def ingest_meteo_data_from_local_path(
 
 def _ingest_meteo_data_from_local_file(
     file_path: Path,
-    metadata: MeteorologicalFileMetadata,
+    metadata: _MeteorologicalFileMetadata,
     session: Session,
-    station_code_mapping: StationCodeMapping,
+    station_code_mapping: _MeteorologicalStationCodeMapping,
 ) -> None:
     station_id = station_code_mapping.get(metadata.station_code)
 
@@ -187,6 +194,12 @@ def _ingest_meteo_data_from_local_file(
                 file, session, station_id
             )
 
+    elif metadata.period == MeteorologicalVariablePeriodicity.EVERY_60_SECONDS:
+        with open(file_path, "r") as file:
+            _ingest_60_seconds_periodicity_meteorological_data(
+                file, session, station_id
+            )
+
     else:
         raise NotImplementedError(
             f"Ingestion not yet implemented for meteorological data with '{metadata.period}' periodicity"
@@ -198,11 +211,11 @@ def ingest_meteo_data_from_ftp_server(
     filters: MeteorologicalDataFilters,
     engine: Engine,
 ) -> None:
-    station_code_mapping = StationCodeMapping(
+    station_code_mapping = _MeteorologicalStationCodeMapping(
         engine, selected_station_codes=filters.station_codes
     )
 
-    server_id = _get_or_create_server(engine, ftp_credentials.host)
+    server_id = get_or_create_server(engine, ftp_credentials.host)
 
     logger.info(
         "Connecting to FTP server `%s:%d`...",
@@ -280,7 +293,7 @@ def _ingest_meteo_data_from_ftp_with_periodicity(
     processed_data_dir: str,
     processed_data_dir_entries: list[str],
     filters: MeteorologicalDataFilters,
-    station_code_mapping: StationCodeMapping,
+    station_code_mapping: _MeteorologicalStationCodeMapping,
     engine: Engine,
     periodicity: int,
     ingest_data: Callable[[IO, Session, int], None],
@@ -299,7 +312,7 @@ def _ingest_meteo_data_from_ftp_with_periodicity(
 
     # Extract station identifiers and file dates
     files_metadata = [
-        extract_meteo_file_metadata(file_name) for file_name in data_files
+        _extract_meteo_file_metadata(file_name) for file_name in data_files
     ]
 
     files_and_metadata = zip(data_files, files_metadata)
@@ -309,7 +322,7 @@ def _ingest_meteo_data_from_ftp_with_periodicity(
     files_with_metadata = filter(lambda p: p[1] is not None, files_and_metadata)
 
     files_with_metadata = cast(
-        Iterable[tuple[str, MeteorologicalFileMetadata]], files_with_metadata
+        Iterable[tuple[str, _MeteorologicalFileMetadata]], files_with_metadata
     )
 
     # Filter files based on user-provided criteria
@@ -335,7 +348,7 @@ def _ingest_meteo_data_from_ftp_with_periodicity(
             logger.info("Processing file '%s'", file_name)
 
             path = f"/{processed_data_dir}/{periodicity}/{file_name}"
-            if _check_file_already_ingested(session, server_id, path):
+            if check_file_already_ingested(session, server_id, path):
                 logger.warning("Skipping already ingested file '%s'...", path)
                 continue
 
@@ -357,58 +370,10 @@ def _ingest_meteo_data_from_ftp_with_periodicity(
 
             ingest_data(string_io, session, station_id)
 
-            _record_ingested_file(session, server_id, path)
+            record_ingested_file(session, server_id, path)
 
 
-def _get_or_create_server(engine: Engine, host: str) -> int:
-    """Returns the ID of the server entity corresponding to the given host,
-    creating it if it doesn't exist.
-    """
-    with Session(engine) as session:
-        stmt = select(Server.id).where(Server.hostname == host)
-
-        server_id = session.execute(stmt).scalar_one_or_none()
-        if server_id is not None:
-            return server_id
-
-        server_id = session.scalars(
-            insert(Server).returning(Server.id), [{"hostname": host}]
-        ).one()
-        session.commit()
-
-        return server_id
-
-
-LOCAL_SERVER_NAME = "localhost"
-
-
-def _get_or_create_local_server(engine: Engine) -> int:
-    """Returns the ID of the server entity corresponding to this host,
-    creating it if it doesn't exist.
-    """
-    return _get_or_create_server(engine, LOCAL_SERVER_NAME)
-
-
-def _check_file_already_ingested(
-    session: Session, server_id: int, path: str | Path
-) -> bool:
-    "Checks whether the indicated file path, on the given server, has already been ingested / harvested / processed."
-    return bool(
-        session.scalar(
-            exists()
-            .where(IngestedFile.server_id == server_id, IngestedFile.path == str(path))
-            .select()
-        )
-    )
-
-
-def _record_ingested_file(session: Session, server_id: int, path: str | Path) -> None:
-    "Records an ingested file's path to the database."
-    session.execute(insert(IngestedFile), [{"server_id": server_id, "path": str(path)}])
-    session.commit()
-
-
-class StationCodeMapping:
+class _MeteorologicalStationCodeMapping:
     _mapping: dict[str, int]
 
     def __init__(self, engine: Engine, selected_station_codes: list[str] = []) -> None:
@@ -466,25 +431,25 @@ class StationCodeMapping:
 
 
 @dataclass
-class MeteorologicalFileMetadata:
+class _MeteorologicalFileMetadata:
     station_code: str
     date: date
     period: MeteorologicalVariablePeriodicity
 
 
-METEO_FILE_STATION_CODE_PATTERN = r"(?P<station_code>\w{2}-\w{3})"
-METEO_FILE_DATE_PATTERN = r"(?P<year>\d{4})(?P<month>\d{2})(?P<day>\d{2})"
-METEO_FILE_PERIOD_PATTERN = r"(?P<period>F\d{2})"
+_METEO_FILE_STATION_CODE_PATTERN = r"(?P<station_code>\w{2}-\w{3})"
+_METEO_FILE_DATE_PATTERN = r"(?P<year>\d{4})(?P<month>\d{2})(?P<day>\d{2})"
+_METEO_FILE_PERIOD_PATTERN = r"(?P<period>F\d{2})"
 
-METEO_FILE_PATTERN = re.compile(
-    f"^{METEO_FILE_STATION_CODE_PATTERN}_BM_{METEO_FILE_DATE_PATTERN}_L\\d{{2}}_{METEO_FILE_PERIOD_PATTERN}\\.csv$"
+_METEO_FILE_PATTERN = re.compile(
+    f"^{_METEO_FILE_STATION_CODE_PATTERN}_BM_{_METEO_FILE_DATE_PATTERN}_L\\d{{2}}_{_METEO_FILE_PERIOD_PATTERN}\\.csv$"
 )
 
 
-def extract_meteo_file_metadata(file_name: str) -> MeteorologicalFileMetadata | None:
+def _extract_meteo_file_metadata(file_name: str) -> _MeteorologicalFileMetadata | None:
     "Extract station code, record date and sampling period from a (processed) meteorological data file name."
 
-    match = METEO_FILE_PATTERN.fullmatch(file_name)
+    match = _METEO_FILE_PATTERN.fullmatch(file_name)
 
     # File does not match (probably not a data file)
     if not match:
@@ -509,15 +474,15 @@ def extract_meteo_file_metadata(file_name: str) -> MeteorologicalFileMetadata | 
     else:
         raise ValueError(f"Unknown measurement periodicity code: '{period_code}'")
 
-    return MeteorologicalFileMetadata(
+    return _MeteorologicalFileMetadata(
         station_code=station_code, date=file_date, period=period
     )
 
 
 def _filter_files(
-    files_with_metadata: Iterable[tuple[str, MeteorologicalFileMetadata]],
+    files_with_metadata: Iterable[tuple[str, _MeteorologicalFileMetadata]],
     filters: MeteorologicalDataFilters,
-) -> Generator[tuple[str, MeteorologicalFileMetadata]]:
+) -> Generator[tuple[str, _MeteorologicalFileMetadata]]:
     "Filter a list of weather station data files using the provided criteria."
 
     filter_by_date = filters.from_date is not None or filters.until_date is not None
@@ -606,6 +571,7 @@ def _ingest_meteorological_data(
             num_rows += 1
 
     cursor.close()
+    session.commit()
 
     copy_end_time = perf_counter()
     copy_duration = copy_end_time - copy_start_time

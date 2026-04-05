@@ -124,10 +124,17 @@ class EddyCovarianceStationInfo(Base, TimestampsMixin):
     station_id: Mapped[int] = mapped_column(ForeignKey(Station.id), primary_key=True)
     station: Mapped[Station] = relationship()
 
-    code: Mapped[str] = mapped_column()
-    "Unique code identifying this station on the data collection FTP server."
+    sftp_directory_name: Mapped[str] = mapped_column()
+    "Name of subdirectory containing this station's data files on the SFTP server."
 
-    __table_args__: tuple[Constraint] = (
+    code: Mapped[str] = mapped_column()
+    "Unique code identifying this station's data files."
+
+    __table_args__: tuple[Constraint, Constraint] = (
+        UniqueConstraint(
+            "sftp_directory_name",
+            name="eddy_covariance_station_infos_sftp_directory_name_unique",
+        ),
         UniqueConstraint("code", name="eddy_covariance_station_infos_code_unique"),
     )
 

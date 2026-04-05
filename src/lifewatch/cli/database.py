@@ -359,10 +359,16 @@ def seed():
                 )
                 session.execute(stmt)
 
-            if station_data["eddy_covariance_station_code"]:
+            eddy_covariance_sftp_directory_name = station_data[
+                "eddy_covariance_sftp_directory_name"
+            ]
+            eddy_covariance_station_code = station_data["eddy_covariance_station_code"]
+
+            if eddy_covariance_sftp_directory_name or eddy_covariance_station_code:
                 stmt = insert(EddyCovarianceStationInfo).values(
                     station_id=station_id,
-                    code=station_data["eddy_covariance_station_code"],
+                    sftp_directory_name=eddy_covariance_sftp_directory_name,
+                    code=eddy_covariance_station_code,
                 )
                 stmt = stmt.on_conflict_do_update(
                     index_elements=["code"], set_={"code": stmt.excluded.code}
