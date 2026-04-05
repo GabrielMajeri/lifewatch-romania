@@ -1,6 +1,8 @@
 import csv
+from datetime import timedelta
 from os import getenv
 from pathlib import Path
+from textwrap import dedent
 from typing import Any
 
 from alembic import command
@@ -10,9 +12,9 @@ from alembic.script import ScriptDirectory
 from dotenv import load_dotenv
 from rich.console import Console
 from rich.prompt import Confirm
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, func, select, text
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import DeclarativeBase, MappedColumn, Session, mapped_column
 import typer
 
 from ..models import Base, EddyCovarianceStationInfo, MeteorologicalStationInfo, Station
@@ -329,8 +331,8 @@ def _read_csv_seed_file(name: str) -> list[dict[str, Any]]:
 
 
 @app.command()
-def seed():
-    """Populates the database with initial data."""
+def seed() -> None:
+    "Populates the database with initial data."
 
     console.print("[bold blue]Seeding database...[/bold blue]")
 
@@ -377,3 +379,109 @@ def seed():
 
         session.commit()
         console.print("[bold green]Seeding complete![/bold green]")
+
+
+class TimescaleBase(DeclarativeBase): ...
+
+
+class TimescaleHypertable(TimescaleBase):
+    __tablename__ = "hypertables"
+    __table_args__ = {"schema": "timescaledb_information"}
+
+    hypertable_schema: MappedColumn[str] = mapped_column(primary_key=True)
+    hypertable_name: MappedColumn[str] = mapped_column(primary_key=True)
+
+
+class TimescaleJobs(TimescaleBase):
+    __tablename__ = "jobs"
+    __table_args__ = {"schema": "timescaledb_information"}
+
+    job_id: MappedColumn[int] = mapped_column(primary_key=True)
+    application_name: MappedColumn[str] = mapped_column()
+    schedule_interval: MappedColumn[timedelta] = mapped_column()
+    hypertable_name: MappedColumn[str] = mapped_column()
+
+
+@app.command()
+def list_hypertables() -> None:
+    "Lists the hypertables managed by TimescaleDB (TigerData)."
+
+    console.print("[blue]Retrieving list of TimescaleDB hypertables...[/blue]")
+
+    engine = create_engine(DATABASE_URL)
+    with Session(engine) as session:
+        stmt = select(TimescaleHypertable).where(
+            TimescaleHypertable.hypertable_schema == "public"
+        )
+        hypertables = session.execute(stmt).scalars()
+
+        hypertables = sorted(hypertables, key=lambda t: t.hypertable_name)
+
+        console.print("[blue]Hypertables in the 'public' schema:[/blue]")
+
+        for table in hypertables:
+            name = table.hypertable_name
+            console.print(f"Hypertable '{table.hypertable_schema}.{name}'")
+
+            stmt = select(func.pg_size_pretty(func.hypertable_size(name)))
+            table_size = session.execute(stmt).scalar_one()
+
+            console.print(f"  Size: {table_size}")
+            console.print()
+
+
+@app.command()
+def list_jobs() -> None:
+    "Lists the jobs scheduled by the TimescaleDB (TigerData) system."
+
+    console.print("[blue]Retrieving list of TimescaleDB jobs...[/blue]")
+
+    engine = create_engine(DATABASE_URL)
+    with Session(engine) as session:
+        stmt = select(TimescaleJobs)
+        jobs = session.execute(stmt).scalars()
+
+        jobs = sorted(jobs, key=lambda job: job.job_id)
+
+        for job in jobs:
+            console.print(f"Job {job.job_id}: {job.application_name}")
+            console.print(f"  Scheduling period: {job.schedule_interval}")
+            console.print(f"  Target hypertable: '{job.hypertable_name}'")
+            console.print()
+
+
+@app.command()
+def run_job(job_id: int) -> None:
+    "Runs a job managed by the TimescaleDB (TigerData) extension."
+
+    console.print("[blue]Retrieving list of TimescaleDB jobs...[/blue]")
+
+    engine = create_engine(DATABASE_URL)
+    with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as connection:
+        stmt = text("CALL run_job(:job_id)")
+        connection.execute(stmt, {"job_id": job_id})
+
+    console.print("[green]Job executed successfully[/green]")
+
+
+@app.command()
+def view_compression_stats(table_name: str) -> None:
+    "View compression statistics for the given TimescaleDB (TigerData) hypertable."
+
+    console.print(f"[blue]Querying statistics for table '{table_name}'...[/blue]")
+
+    engine = create_engine(DATABASE_URL)
+    with Session(engine) as session:
+        stmt = text(
+            dedent("""
+                    SELECT
+                        pg_size_pretty(before_compression_total_bytes) as before,
+                        pg_size_pretty(after_compression_total_bytes) as after
+                    FROM hypertable_columnstore_stats(:table_name)
+            """).strip()
+        )
+        statistics = session.execute(stmt, {"table_name": table_name}).one()
+        before_size, after_size = statistics.tuple()
+
+        console.print(f"Size before compression: {before_size}")
+        console.print(f"Size after compression: {after_size}")
