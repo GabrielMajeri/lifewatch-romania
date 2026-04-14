@@ -1,15 +1,66 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import Select from "react-select";
+import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 
-const options = [
-  { value: "chocolate", label: "Chocolate" },
-  { value: "strawberry", label: "Strawberry" },
-  { value: "vanilla", label: "Vanilla" },
-];
+import Select, { SingleValue } from "react-select";
 
-export default function StationSelect() {
+export type StationEntry = {
+  id: number;
+  name: string;
+  kind: string | null;
+};
+
+type Option = { value: number; label: string };
+
+type Props = {
+  stations: StationEntry[];
+  selectedStation?: StationEntry;
+};
+
+export default function StationSelect({ stations, selectedStation }: Props) {
+  const defaultOption =
+    selectedStation !== undefined
+      ? { value: selectedStation.id, label: selectedStation.name }
+      : null;
+
+  const stationGroups = Object.groupBy(
+    stations,
+    ({ kind }) => kind ?? "unknown",
+  );
+  const options = Object.entries(stationGroups).map(([key, value]) => ({
+    label:
+      key === "meteorological"
+        ? "Meteorological"
+        : key === "eddy-covariance"
+          ? "Eddy covariance"
+          : "Unknown",
+    options: value!.map((station) => ({
+      value: station.id,
+      label: station.name,
+    })),
+  }));
+
+  const searchParams = useSearchParams();
+
+  const handleChange = useCallback(
+    (newValue: SingleValue<Option>) => {
+      const params = new URLSearchParams(searchParams.toString());
+
+      if (newValue === null) {
+        params.delete("stationId");
+      } else {
+        const newStationId = newValue.value;
+        params.set("stationId", newStationId.toString());
+      }
+
+      window.history.pushState(null, "", `?${params.toString()}`);
+      window.navigation.reload();
+    },
+    [searchParams],
+  );
+
+  // BUG: Workaround to handle hydration issues with React Select
   const [hasMounted, setHasMounted] = useState(false);
 
   useEffect(() => {
@@ -18,17 +69,19 @@ export default function StationSelect() {
   }, []);
 
   if (!hasMounted) {
-    return null;
+    return <p>Loading...</p>;
   }
-
-  // TODO: fetch station list from back end
 
   return (
     <Select
       options={options}
+      defaultValue={defaultOption}
       classNames={{
         container: (state) => "dark:text-white",
-        control: (state) => "dark:text-white",
+        control: (state) =>
+          "dark:text-white dark:!bg-zinc-800 dark:!border-zinc-500",
+        dropdownIndicator: (state) =>
+          "cursor-pointer dark:!text-white dark:bg-zinc-500",
         input: (state) => "dark:text-white",
         option: (state) =>
           "dark:bg-black dark:text-white" +
@@ -36,8 +89,10 @@ export default function StationSelect() {
           (state.isSelected ? " dark:!bg-blue-300" : ""),
         menuList: (state) => "dark:bg-black",
         placeholder: (state) => "dark:!text-white",
+        singleValue: (state) => "dark:!text-white",
         valueContainer: (state) => "dark:bg-zinc-800 dark:text-white",
       }}
+      onChange={handleChange}
     />
   );
 }
