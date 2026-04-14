@@ -1,30 +1,21 @@
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import StationSelect from "./components/station-select";
 
 export default function HomePage() {
   return (
-    <main className="min-h-screen flex flex-row justify-center items-center">
-      <Card className="max-w-sm">
-        <CardHeader>
-          <CardTitle>Project Overview</CardTitle>
-          <CardDescription>
-            Track progress and recent activity for your Next.js app.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <p>
-            Your design system is ready. Start building your next component.
-          </p>
-          <p className="mt-3">
-            To get started, edit the <code>page.tsx</code> file.
-          </p>
-        </CardContent>
-      </Card>
+    <main className="max-w-prose mx-6 sm:mx-10 mt-10 sm:mt-20">
+      <header>
+        <h1 className="antialiased text-3xl font-bold">
+          LifeWatch Data Platform
+        </h1>
+        <p className="dark:subpixel-antialiased mt-4 mb-8">
+          Welcome to the data platform for the LifeWatch Romania project! Please
+          select a sensor station to begin.
+        </p>
+      </header>
+
+      <section>
+        <StationSelect />
+      </section>
     </main>
   );
 }

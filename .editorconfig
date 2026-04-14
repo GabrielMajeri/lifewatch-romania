@@ -1,0 +1,21 @@
+# EditorConfig is awesome: https://editorconfig.org
+
+# This is the top-most EditorConfig file for this project
+root = true
+
+# Settings which apply to all (text) files
+[*]
+# Encode all characters using UTF-8
+charset = utf-8
+# Terminate lines using a single LF character
+end_of_line = lf
+
+# Ensure all files end with a blank line
+insert_final_newline = true
+# Remove superfluous whitespace
+trim_trailing_whitespace = true
+
+# Settings which apply to JavaScript/TypeScript files
+[*.{js,jsx,ts,tsx}]
+indent_style = space
+indent_size = 2

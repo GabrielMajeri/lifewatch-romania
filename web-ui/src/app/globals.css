@@ -2,7 +2,8 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
-@custom-variant dark (&:is(.dark *));
+/* TODO: why does shadcn want to control explicitly when dark theme gets activated? */
+/* @custom-variant dark (&:is(.dark *)); */
 
 @theme inline {
   --font-heading: var(--font-sans);
