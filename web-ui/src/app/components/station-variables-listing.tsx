@@ -1,4 +1,6 @@
 import { API_BASE_URL, StationInformation } from "@/lib/api";
+import { Suspense } from "react";
+import StationDataDisplay from "./station-data-display";
 
 type Props = {
   stationId: number;
@@ -45,6 +47,12 @@ export default async function StationVariablesListing({ stationId }: Props) {
           Number of measured environmental variables:{" "}
           {stationInfo.variables.length}
         </p>
+        <Suspense fallback={<p>Loading...</p>}>
+          <StationDataDisplay
+            stationId={stationId}
+            variables={[stationInfo.variables[0].name]}
+          />
+        </Suspense>
       </header>
     </>
   );

@@ -139,18 +139,24 @@ class EddyCovarianceStationInfo(Base, TimestampsMixin):
     )
 
 
-@final
-class Meteorological20SecondMeasurement(Base):
-    __tablename__ = "meteorological_20s_measurements"
+class Measurement(Base):
+    __abstract__ = True
 
     station_id: Mapped[int] = mapped_column(ForeignKey(Station.id), primary_key=True)
-    station: Mapped[Station] = relationship(
-        back_populates="meteorological_20_second_measurements"
-    )
 
     timestamp: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), primary_key=True
     )
+
+
+@final
+class Meteorological20SecondMeasurement(Measurement):
+    __tablename__ = "meteorological_20s_measurements"
+
+    station: Mapped[Station] = relationship(
+        back_populates="meteorological_20_second_measurements"
+    )
+
     irradiance: Mapped[float] = mapped_column(Float(6), nullable=False)
     unit_temperature_sr30: Mapped[float] = mapped_column(Float(6), nullable=False)
     error_code_sr30: Mapped[int] = mapped_column(SmallInteger, nullable=False)
@@ -159,17 +165,13 @@ class Meteorological20SecondMeasurement(Base):
 
 
 @final
-class Meteorological30SecondMeasurement(Base):
+class Meteorological30SecondMeasurement(Measurement):
     __tablename__ = "meteorological_30s_measurements"
 
-    station_id: Mapped[int] = mapped_column(ForeignKey(Station.id), primary_key=True)
     station: Mapped[Station] = relationship(
         back_populates="meteorological_30_second_measurements"
     )
 
-    timestamp: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), primary_key=True
-    )
     wind_direction: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
     wind_speed: Mapped[float] = mapped_column(Float, nullable=False)
     current_weather_code: Mapped[int] = mapped_column(SmallInteger, nullable=False)
@@ -184,17 +186,13 @@ class Meteorological30SecondMeasurement(Base):
 
 
 @final
-class Meteorological60SecondMeasurement(Base):
+class Meteorological60SecondMeasurement(Measurement):
     __tablename__ = "meteorological_60s_measurements"
 
-    station_id: Mapped[int] = mapped_column(ForeignKey(Station.id), primary_key=True)
     station: Mapped[Station] = relationship(
         back_populates="meteorological_60_second_measurements"
     )
 
-    timestamp: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), primary_key=True
-    )
     snow_depth: Mapped[float] = mapped_column(Float(6), nullable=False)
     total_rain: Mapped[float] = mapped_column(Float(6), nullable=False)
     soil_temperature: Mapped[float] = mapped_column(Float(6), nullable=False)
@@ -203,17 +201,13 @@ class Meteorological60SecondMeasurement(Base):
 
 
 @final
-class EddyCovarianceMeasurement(Base):
+class EddyCovarianceMeasurement(Measurement):
     __tablename__ = "eddy_covariance_measurements"
 
-    station_id: Mapped[int] = mapped_column(ForeignKey(Station.id), primary_key=True)
     station: Mapped[Station] = relationship(
         back_populates="eddy_covariance_measurements"
     )
 
-    timestamp: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), primary_key=True
-    )
     nanoseconds: Mapped[int] = mapped_column(nullable=False, default=0)
 
     co2_concentration: Mapped[float] = mapped_column(Float(6), nullable=False)
