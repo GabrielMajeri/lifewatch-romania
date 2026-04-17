@@ -5,11 +5,7 @@ import { useSearchParams } from "next/navigation";
 
 import Select, { SingleValue } from "react-select";
 
-export type StationEntry = {
-  id: number;
-  name: string;
-  kind: string | null;
-};
+import { StationEntry } from "@/lib/api";
 
 type Option = { value: number; label: string };
 

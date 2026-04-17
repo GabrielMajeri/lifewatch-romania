@@ -1,6 +1,5 @@
-import StationSelect, { StationEntry } from "./station-select";
-
-const API_BASE_URL = "http://localhost:8000";
+import { API_BASE_URL, StationEntry } from "@/lib/api";
+import StationSelect from "./station-select";
 
 type Props = {
   stationId?: number;

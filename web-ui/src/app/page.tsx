@@ -1,4 +1,5 @@
 import StationSelectContainer from "./components/station-select-container";
+import StationVariablesListing from "./components/station-variables-listing";
 
 export default async function HomePage(props: PageProps<"/">) {
   const { stationId: rawStationId } = await props.searchParams;
@@ -29,6 +30,11 @@ export default async function HomePage(props: PageProps<"/">) {
       <section>
         <StationSelectContainer stationId={stationId} />
       </section>
+      {stationId && (
+        <section className="my-5">
+          <StationVariablesListing stationId={stationId} />
+        </section>
+      )}
     </main>
   );
 }
