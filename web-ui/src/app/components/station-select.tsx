@@ -81,7 +81,7 @@ export default function StationSelect({ stations, selectedStationId }: Props) {
   }, []);
 
   if (!hasMounted) {
-    return <p>Loading...</p>;
+    return <p>Stations list is loading...</p>;
   }
 
   return (

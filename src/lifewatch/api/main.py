@@ -285,7 +285,7 @@ def get_measurements(
         )
 
     if since is None:
-        since = latest_timestamp - timedelta(hours=6)
+        since = latest_timestamp - timedelta(hours=2)
 
     if until is None:
         until = latest_timestamp
@@ -296,7 +296,7 @@ def get_measurements(
         )
 
     duration = until - since
-    max_hours = 24
+    max_hours = 12
     if duration >= timedelta(hours=max_hours):
         raise HTTPException(
             status_code=400,

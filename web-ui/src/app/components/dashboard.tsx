@@ -1,7 +1,8 @@
 import { StationEntry } from "@/lib/api";
 
-import StationVariablesListing from "./station-variables-listing";
 import StationSelect from "./station-select";
+import StationDataDisplay from "./station-data-display";
+import { Suspense } from "react";
 
 type Props = {
   stations: StationEntry[];
@@ -19,9 +20,11 @@ export default function Dashboard({ stations, stationId }: Props) {
         />
       </section>
       {stationId && (
-        <section className="my-5">
-          <StationVariablesListing stationId={stationId} />
-        </section>
+        <Suspense>
+          <section className="my-5">
+            <StationDataDisplay stationId={stationId} />
+          </section>
+        </Suspense>
       )}
     </>
   );
