@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import Select, { SingleValue } from "react-select";
 
@@ -11,14 +11,28 @@ type Option = { value: number; label: string };
 
 type Props = {
   stations: StationEntry[];
-  selectedStation?: StationEntry;
+  selectedStationId?: number;
 };
 
-export default function StationSelect({ stations, selectedStation }: Props) {
+export default function StationSelect({ stations, selectedStationId }: Props) {
+  let selectedStation = undefined;
+  if (selectedStationId !== undefined) {
+    selectedStation = stations.find(
+      (station) => station.id === selectedStationId,
+    );
+    if (selectedStation === undefined) {
+      console.warn("Could not find station with ID %d", selectedStationId);
+    }
+  }
+
   const defaultOption =
     selectedStation !== undefined
       ? { value: selectedStation.id, label: selectedStation.name }
       : null;
+
+  const [value, setValue] = useState<SingleValue<Option>>(
+    defaultOption ?? null,
+  );
 
   const stationGroups = Object.groupBy(
     stations,
@@ -38,9 +52,12 @@ export default function StationSelect({ stations, selectedStation }: Props) {
   }));
 
   const searchParams = useSearchParams();
+  const router = useRouter();
 
   const handleChange = useCallback(
     (newValue: SingleValue<Option>) => {
+      setValue(newValue);
+
       const params = new URLSearchParams(searchParams.toString());
 
       if (newValue === null) {
@@ -50,10 +67,9 @@ export default function StationSelect({ stations, selectedStation }: Props) {
         params.set("stationId", newStationId.toString());
       }
 
-      window.history.pushState(null, "", `?${params.toString()}`);
-      window.navigation.reload();
+      router.push(`?${params.toString()}`);
     },
-    [searchParams],
+    [searchParams, router],
   );
 
   // BUG: Workaround to handle hydration issues with React Select
@@ -71,7 +87,7 @@ export default function StationSelect({ stations, selectedStation }: Props) {
   return (
     <Select
       options={options}
-      defaultValue={defaultOption}
+      value={value}
       classNames={{
         container: (state) => "dark:text-white",
         control: (state) =>

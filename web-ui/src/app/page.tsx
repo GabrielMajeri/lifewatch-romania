@@ -1,5 +1,6 @@
-import StationSelectContainer from "./components/station-select-container";
-import StationVariablesListing from "./components/station-variables-listing";
+import { getStations } from "@/lib/api";
+
+import Dashboard from "./components/dashboard";
 
 export default async function HomePage(props: PageProps<"/">) {
   const { stationId: rawStationId } = await props.searchParams;
@@ -7,13 +8,28 @@ export default async function HomePage(props: PageProps<"/">) {
   let stationId = undefined;
   if (typeof rawStationId === "string" && rawStationId) {
     stationId = parseInt(rawStationId);
-    if (isNaN(stationId)) {
-      return (
-        <p className="text-red-600 dark:text-red-500 antialiased">
-          Error: invalid station ID &apos;{rawStationId}&apos;
-        </p>
+  }
+
+  let stations;
+  try {
+    stations = await getStations();
+  } catch (exc) {
+    let errorMessage = "unknown error";
+    if (exc instanceof Error) {
+      console.error(
+        "Could not load stations from back end API: %s",
+        exc.message,
       );
+      errorMessage = exc.message;
+    } else {
+      console.error("Could not load stations from back end API: %s", exc);
     }
+
+    return (
+      <p className="p-4 sm:p-6 md:p-10 text-red-600 antialiased dark:text-red-500">
+        Failed to load stations from back end API: {errorMessage}
+      </p>
+    );
   }
 
   return (
@@ -22,19 +38,24 @@ export default async function HomePage(props: PageProps<"/">) {
         <h1 className="antialiased text-3xl font-bold">
           LifeWatch Data Platform
         </h1>
-        <p className="dark:subpixel-antialiased mt-4 mb-8">
-          Welcome to the data platform for the LifeWatch Romania project! Please
-          select a sensor station to begin exploring the available data.
-        </p>
+        {stationId !== undefined && isNaN(stationId) ? (
+          <p className="text-red-600 dark:text-red-500 antialiased">
+            Error: invalid station ID &apos;{rawStationId}&apos;
+          </p>
+        ) : (
+          <p className="dark:subpixel-antialiased mt-4 mb-8">
+            Welcome to the data platform for the LifeWatch Romania project!
+            {stationId === undefined && (
+              <>
+                {" "}
+                Please select a sensor station to begin exploring the available
+                data.
+              </>
+            )}
+          </p>
+        )}
       </header>
-      <section>
-        <StationSelectContainer stationId={stationId} />
-      </section>
-      {stationId && (
-        <section className="my-5">
-          <StationVariablesListing stationId={stationId} />
-        </section>
-      )}
+      <Dashboard stations={stations} stationId={stationId} />
     </main>
   );
 }
