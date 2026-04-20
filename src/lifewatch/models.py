@@ -160,8 +160,8 @@ class Meteorological20SecondMeasurement(Measurement):
     irradiance: Mapped[float] = mapped_column(Float(6), nullable=False)
     unit_temperature_sr30: Mapped[float] = mapped_column(Float(6), nullable=False)
     error_code_sr30: Mapped[int] = mapped_column(SmallInteger, nullable=False)
-    licor_irradiance: Mapped[float] = mapped_column(Float(6), nullable=False)
-    cuv5_irradiance: Mapped[float] = mapped_column(Float(6), nullable=False)
+    licor_irradiance: Mapped[float] = mapped_column(Float(6), nullable=True)
+    cuv5_irradiance: Mapped[float] = mapped_column(Float(6), nullable=True)
 
 
 @final

@@ -512,13 +512,13 @@ def _ingest_meteorological_data(
     buffer: IO,
     session: Session,
     station_id: int,
-    column_name_mapping: list[tuple[str, str]],
+    column_name_mapping: list[tuple[str, str, bool]],
     destination_table: type[
         Meteorological20SecondMeasurement
         | Meteorological30SecondMeasurement
         | Meteorological60SecondMeasurement
     ],
-    process_column_value: Callable[[str, str], str | None] | None = None,
+    process_column_value: Callable[[str, str | None], str | None] | None = None,
 ) -> None:
     # Read the data from the provided CSV file
     csv_reader = DictReader(buffer, delimiter=",", strict=True)
@@ -527,7 +527,12 @@ def _ingest_meteorological_data(
         raise Exception("Could not read variable names (column headers) from data file")
 
     required_columns = set(
-        ["TIMESTAMP"] + [csv_column_name for csv_column_name, _ in column_name_mapping]
+        ["TIMESTAMP"]
+        + [
+            csv_column_name
+            for csv_column_name, _, required in column_name_mapping
+            if required
+        ]
     )
     csv_columns = set(csv_reader.fieldnames)
     if not required_columns <= csv_columns:
@@ -539,7 +544,7 @@ def _ingest_meteorological_data(
     columns = [
         destination_table.station_id.key,
         destination_table.timestamp.key,
-    ] + [table_column_name for (_, table_column_name) in column_name_mapping]
+    ] + [table_column_name for (_, table_column_name, _) in column_name_mapping]
 
     logger.info("Using PostgreSQL's `COPY ... FROM STDIN` command to bulk insert data")
 
@@ -559,8 +564,11 @@ def _ingest_meteorological_data(
 
             # Extract relevant columns from this row
             measurement_values: list[str | None] = []
-            for column_name, _ in column_name_mapping:
-                value = row[column_name]
+            for column_name, _, required in column_name_mapping:
+                if required:
+                    value = row[column_name]
+                else:
+                    value = row.get(column_name, None)
 
                 if process_column_value is not None:
                     value = process_column_value(column_name, value)
@@ -586,19 +594,20 @@ def _ingest_20_seconds_periodicity_meteorological_data(
     buffer: IO, session: Session, station_id: int
 ) -> None:
     # Assemble list of columns
-    column_name_mapping: list[tuple[str, str]] = [
-        ("Irradiance", "irradiance"),
-        ("Unit_Temp_SR30", "unit_temperature_sr30"),
-        ("Error_Code_SR30", "error_code_sr30"),
-        ("LICOR_Irradiance", "licor_irradiance"),
-        ("CUV5_Irradiance", "cuv5_irradiance"),
+    column_name_mapping: list[tuple[str, str, bool]] = [
+        ("Irradiance", "irradiance", True),
+        ("Unit_Temp_SR30", "unit_temperature_sr30", True),
+        ("Error_Code_SR30", "error_code_sr30", False),
+        ("LICOR_Irradiance", "licor_irradiance", False),
+        ("CUV5_Irradiance", "cuv5_irradiance", False),
     ]
 
-    def process_column_value(column_name: str, value: str) -> str:
+    def process_column_value(column_name: str, value: str | None) -> str | None:
         # For some strange reason, in some files,
         # this column is a float (usually 0)
         if column_name == "Error_Code_SR30":
-            value = str(int(float(value)))
+            if value:
+                value = str(int(float(value)))
 
         return value
 
@@ -615,38 +624,47 @@ def _ingest_20_seconds_periodicity_meteorological_data(
 def _ingest_30_seconds_periodicity_meteorological_data(
     buffer: IO, session: Session, station_id: int
 ) -> None:
-    column_name_mapping: list[tuple[str, str]] = [
-        ("Wind_Direction", "wind_direction"),
-        ("Wind_Speed", "wind_speed"),
-        ("Present_Weather_Code", "current_weather_code"),
-        ("Visibility", "visibility"),
-        ("Particles_Count", "particles_count"),
-        ("Intensity", "intensity"),
-        ("Air_Temp_CS125", "air_temp_cs125"),
-        ("Air_Pressure", "air_pressure"),
-        ("Air_Humidity", "air_humidity"),
-        ("Air_Temperature", "air_temperature"),
-        ("DataLogger_Voltage", "data_logger_voltage"),
+    column_name_mapping: list[tuple[str, str, bool]] = [
+        ("Wind_Direction", "wind_direction", True),
+        ("Wind_Speed", "wind_speed", True),
+        ("Present_Weather_Code", "current_weather_code", True),
+        ("Visibility", "visibility", True),
+        ("Particles_Count", "particles_count", True),
+        ("Intensity", "intensity", True),
+        ("Air_Temp_CS125", "air_temp_cs125", True),
+        ("Air_Pressure", "air_pressure", True),
+        ("Air_Humidity", "air_humidity", True),
+        ("Air_Temperature", "air_temperature", True),
+        ("DataLogger_Voltage", "data_logger_voltage", False),
     ]
 
-    def process_column_value(column_name: str, value: str) -> str | None:
-        # Sometimes, this is NAN
+    def process_column_value(column_name: str, value: str | None) -> str | None:
         if column_name == "Wind_Direction":
+            if value is None:
+                return None
+
+            # Sometimes, this is NAN
             if value.lower() == "nan":
                 return None
 
+            # Sometimes, we have the special value "1.0"
+            return str(int(float(value)))
+
         # In some files, this column is a float with the special value "-1.0"
         if column_name == "Present_Weather_Code":
-            return str(int(float(value)))
+            if value:
+                return str(int(float(value)))
 
         # In some files, this column has an extra ".0" for all values
         # (but they're actually integers)
         if column_name == "Visibility":
-            return str(int(float(value)))
+            if value:
+                return str(int(float(value)))
 
         # In some files, this column is a float with the special value "-99.0"
         if column_name == "Particles_Count":
-            return str(int(float(value)))
+            if value:
+                return str(int(float(value)))
 
         return value
 
@@ -663,18 +681,19 @@ def _ingest_30_seconds_periodicity_meteorological_data(
 def _ingest_60_seconds_periodicity_meteorological_data(
     buffer: IO, session: Session, station_id: int
 ) -> None:
-    column_name_mapping: list[tuple[str, str]] = [
-        ("Snow_Depth", "snow_depth"),
-        ("Total_Rain", "total_rain"),
-        ("Soil_Temperature", "soil_temperature"),
-        ("Soil_Humidity", "soil_humidity"),
-        ("Measurement_Quality_SR50A", "measurement_quality_sr50a"),
+    column_name_mapping: list[tuple[str, str, bool]] = [
+        ("Snow_Depth", "snow_depth", True),
+        ("Total_Rain", "total_rain", True),
+        ("Soil_Temperature", "soil_temperature", True),
+        ("Soil_Humidity", "soil_humidity", True),
+        ("Measurement_Quality_SR50A", "measurement_quality_sr50a", True),
     ]
 
-    def process_column_value(column_name: str, value: str) -> str:
+    def process_column_value(column_name: str, value: str | None) -> str | None:
         # Sometimes, this is NAN
         if column_name == "Measurement_Quality_SR50A":
-            return str(int(float(value)))
+            if value:
+                return str(int(float(value)))
 
         return value
 
