@@ -2,9 +2,68 @@
 
 ## Description
 
-This repository hosts the source code of the data platform for the Romanian branch of the [LifeWatch](https://lifewatch.ro) project. The LifeWatch network perform ecosystem monitoring through weather (meteorological) and eddy covariance stations.
+This repository hosts the source code of the data platform for the Romanian branch of the [LifeWatch](https://lifewatch.ro) project. The LifeWatch network performs ecosystem monitoring through weather (meteorological) and eddy covariance stations.
 
-## Contents
+## Architectural overview
+
+The data platform is based upon a layered architecture:
+
+- The database model is defined in [Python](https://www.python.org/), with the help of [SQLAlchemy](https://www.sqlalchemy.org/). We use the [PostgreSQL](https://www.postgresql.org/) database system, together with the [TimescaleDB](https://timescaledb.org/) extension (for handling large time series).
+
+- The back end API server is built using [FastAPI](https://fastapi.tiangolo.com/), [Pydantic Validation](https://pydantic.dev/docs/validation/latest/concepts/models/) and [SQLAlchemy](https://www.sqlalchemy.org/).
+
+- The front end is built using [React](https://react.dev/), [Tailwind](https://tailwindcss.com/) and [Next.js](https://nextjs.org/).
+
+## Development setup
+
+We recommend using [uv](https://docs.astral.sh/uv/) to manage your Python environment.
+
+### Setting up the database
+
+```shell
+docker compose up
+```
+
+```shell
+lifewatch db create
+lifewatch db seed
+```
+
+### Ingesting data
+
+```shell
+lifewatch ingester meteorological
+lifewatch ingester eddy-covariance
+```
+
+### Starting the back end API server
+
+```shell
+fastapi dev
+```
+
+### Starting the front end web server
+
+```shell
+pnpm run dev
+```
+
+### Environment variables
+
+Most of the commands are designed to determine which servers to connect to and with which credentials by reading some environment variables. Create a `.env` file at the root of this repo containing the following variables:
+
+```shell
+COMPOSE_PROJECT_NAME=lifewatch
+DATABASE_URL=postgresql+psycopg://<username>:<password>@<hostname>:5432/<database>
+
+# For meteorological/weather station data reading (from the data collection FTP server)
+METEO_FTP_HOST=
+METEO_FTP_PORT=
+METEO_FTP_USER=
+METEO_FTP_PASSWORD=
+```
+
+## Command-line `lifewatch` tool
 
 We currently provide two command-line tools:
 
@@ -32,24 +91,3 @@ They are both accessible as subcommands of the `lifewatch` command-line app, whi
   - [openEO access homepage](https://dataspace.copernicus.eu/analyse/openeo)
   - [openEO API docs](https://documentation.dataspace.copernicus.eu/APIs/openEO/openEO.html)
   - [openEO Web Editor](https://openeo.dataspace.copernicus.eu/)
-
-## Development setup
-
-The database model is defined in [Python](https://www.python.org/), with the help of [SQLAlchemy](https://www.sqlalchemy.org/).
-
-We recommend using [uv](https://docs.astral.sh/uv/) to manage your Python environment.
-
-### Environment variables
-
-Most of the commands are designed to determine which servers to connect to and with which credentials by reading some environment variables. Create a `.env` file at the root of this repo containing the following variables:
-
-```shell
-COMPOSE_PROJECT_NAME=lifewatch
-DATABASE_URL=postgresql+psycopg://<username>:<password>@<hostname>:5432/<database>
-
-# For meteorological/weather station data reading (from the data collection FTP server)
-METEO_FTP_HOST=
-METEO_FTP_PORT=
-METEO_FTP_USER=
-METEO_FTP_PASSWORD=
-```
