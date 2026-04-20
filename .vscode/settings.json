@@ -6,6 +6,9 @@
   "[jsonc]": {
     "editor.defaultFormatter": "esbenp.prettier-vscode"
   },
+  "[markdown]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
   "python-envs.defaultEnvManager": "ms-python.python:venv",
   "python-envs.defaultPackageManager": "ms-python.python:pip",
   "python.defaultInterpreterPath": ".venv/bin/python3",
