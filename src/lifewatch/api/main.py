@@ -92,6 +92,8 @@ class StationEntry(TypedDict):
 
 @app.get("/stations")
 def get_stations(session: SessionDep) -> Sequence[StationEntry]:
+    logger.info("GET /stations")
+
     stmt = (
         select(
             Station.id,
@@ -207,6 +209,8 @@ def get_station_by_id(session: Session, station_id: int) -> StationEntry:
     },
 )
 def get_station_info(station_id: int, session: SessionDep) -> StationInformation:
+    logger.info("GET /stations/%d", station_id)
+
     station = get_station_by_id(session, station_id)
 
     kind = station["kind"]
@@ -236,12 +240,16 @@ def get_measurements(
     since: datetime | None = None,
     until: datetime | None = None,
 ) -> Measurements:
+    logger.info("GET /stations/%d/measurements", station_id)
+
     station = get_station_by_id(session, station_id)
     if station["kind"] is None:
         raise HTTPException(
             status_code=400,
             detail="Cannot get measurements for a station of unknown kind",
         )
+
+    logger.info("Station kind: %s", station["kind"])
 
     if station["kind"] == StationKind.METEO:
         valid_variables = [var.column_name for var in meteo_variables]
@@ -310,21 +318,52 @@ def get_measurements(
         variable_name = md.column_name
 
         table = measurements_tables[md.table_name]
-        stmt = (
-            select(table.timestamp, table.__table__.columns[md.column_name])
-            .where(
-                table.station_id == station_id,
-                since <= table.timestamp,
-                table.timestamp <= until,
+        if station["kind"] == StationKind.METEO:
+            stmt = (
+                select(table.timestamp, table.__table__.columns[md.column_name])
+                .where(
+                    table.station_id == station_id,
+                    since <= table.timestamp,
+                    table.timestamp <= until,
+                )
+                .order_by(asc(table.timestamp))
+                .limit(50_000)
             )
-            .order_by(asc(table.timestamp))
-        )
+        else:
+            subq = (
+                select(
+                    table.timestamp,
+                    table.__table__.columns[md.column_name],
+                    func.row_number()
+                    .over(order_by=asc(table.timestamp))
+                    .label("row_number"),
+                )
+                .where(
+                    table.station_id == station_id,
+                    since <= table.timestamp,
+                    table.timestamp <= until,
+                )
+                .order_by(asc(table.timestamp))
+                .subquery()
+            )
+            stmt = (
+                select(subq.c["timestamp"], subq.c[md.column_name])
+                .where(subq.c.row_number % 50 == 0)
+                .limit(50_000)
+            )
+
         rows = session.execute(stmt).all()
+
+        logger.info(
+            "Querying variable %s; retrieved %d rows from DB", variable_name, len(rows)
+        )
 
         timestamps[variable_name] = [row[0].isoformat() for row in rows]
         measurements[variable_name] = [
             (float(row[1]) if row[1] is not None else None) for row in rows
         ]
+
+    logger.info("Finished loading measurements from DB")
 
     return {
         "variables": variables,

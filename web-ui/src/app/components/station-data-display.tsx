@@ -60,6 +60,11 @@ export default async function StationDataDisplay({ stationId }: Props) {
     );
   }
 
+  const representativeVariable = stationInfo.variables[0];
+  const representativeVariableName = representativeVariable.name;
+  const representativeTimestamps =
+    measurements.timestamps[representativeVariableName];
+
   return (
     <>
       <header className="m-3 my-5">
@@ -69,6 +74,16 @@ export default async function StationDataDisplay({ stationId }: Props) {
         <p>
           Number of measured environmental variables:{" "}
           {stationInfo.variables.length}
+        </p>
+        <p>
+          Data starting from timestamp:{" "}
+          {representativeTimestamps[0].toISOString()}
+        </p>
+        <p>
+          Latest data timestamp:{" "}
+          {representativeTimestamps[
+            representativeTimestamps.length - 1
+          ].toISOString()}
         </p>
       </header>
       {stationInfo.variables.map((variable) => (
