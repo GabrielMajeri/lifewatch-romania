@@ -7,13 +7,14 @@ import logging
 from os import getenv
 from pathlib import Path
 import re
+from time import perf_counter
 from typing import Annotated, Literal, Sequence, TypedDict, cast
 
 import coloredlogs
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import asc, create_engine, func, select
+from sqlalchemy import asc, create_engine, distinct, func, select
 from sqlalchemy.orm import Session
 import uvicorn
 
@@ -58,7 +59,12 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator:
     yield
 
 
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(
+    lifespan=lifespan,
+    title="LifeWatch Romania API",
+    summary="REST API for accessing the data collected by the Romanian branches of the LifeWatch and ICOS projects.",
+    description="This API provides access to the public environmental monitoring data collected by the LifeWatch Romania project (https://lifewatch.ro/), part of the LifeWatch ERIC (https://www.lifewatch.eu/).",
+)
 
 
 def get_session() -> Generator[Session, None, None]:
@@ -74,9 +80,51 @@ class HealthStatusResponse(TypedDict):
     status: Literal["healthy"]
 
 
-@app.get("/health")
+@app.get("/health", summary="Check API server health")
 def health() -> HealthStatusResponse:
     return {"status": "healthy"}
+
+
+class VariableKind(StrEnum):
+    METEO = "meteorological"
+    EDDY_COVARIANCE = "eddy-covariance"
+
+
+class VariableInfo(TypedDict):
+    id: str
+    name: str
+    kind: VariableKind
+    units: str
+    description: str
+
+
+@app.get("/variables", summary="Get list of recorded environmental variables")
+def get_variables() -> Sequence[VariableInfo]:
+    variable_infos: Sequence[VariableInfo] = []
+
+    variable_infos += [
+        VariableInfo(
+            id=var.column_name,
+            name=var.name,
+            kind=VariableKind.METEO,
+            units=var.units,
+            description=var.description,
+        )
+        for var in meteo_variables
+    ]
+
+    variable_infos += [
+        VariableInfo(
+            id=var.column_name,
+            name=var.name,
+            kind=VariableKind.EDDY_COVARIANCE,
+            units=var.units,
+            description=var.description,
+        )
+        for var in eddy_covariance_variables
+    ]
+
+    return variable_infos
 
 
 class StationKind(StrEnum):
@@ -90,7 +138,7 @@ class StationEntry(TypedDict):
     kind: StationKind | None
 
 
-@app.get("/stations")
+@app.get("/stations", summary="Retrieve the list of stations")
 def get_stations(session: SessionDep) -> Sequence[StationEntry]:
     logger.info("GET /stations")
 
@@ -141,6 +189,11 @@ meteo_variables = [
 eddy_covariance_variables = [
     md for md in variable_metadata if md.table_name == "eddy_covariance_measurements"
 ]
+
+variable_ids = [meta.column_name for meta in variable_metadata]
+assert len(variable_ids) == len(set(variable_ids)), (
+    "Variable column names have to be unique, for now"
+)
 
 measurements_tables: dict[str, type[Measurement]] = {
     "meteorological_20s_measurements": Meteorological20SecondMeasurement,
@@ -204,6 +257,7 @@ def get_station_by_id(session: Session, station_id: int) -> StationEntry:
 
 @app.get(
     "/stations/{station_id}",
+    summary="Retrieve more information and monitored variables list for a station",
     responses={
         404: {"description": "Station with the given ID was not found in the database"}
     },
@@ -232,8 +286,11 @@ class Measurements(TypedDict):
     measurements: dict[str, list[float | None]]
 
 
-@app.get("/stations/{station_id}/measurements")
-def get_measurements(
+@app.get(
+    "/stations/{station_id}/measurements",
+    summary="Fetch recorded measurements from a station",
+)
+def get_station_measurements(
     station_id: int,
     session: SessionDep,
     variables: Annotated[list[str], Query()] = [],
@@ -356,6 +413,132 @@ def get_measurements(
 
         logger.info(
             "Querying variable %s; retrieved %d rows from DB", variable_name, len(rows)
+        )
+
+        timestamps[variable_name] = [row[0].isoformat() for row in rows]
+        measurements[variable_name] = [
+            (float(row[1]) if row[1] is not None else None) for row in rows
+        ]
+
+    logger.info("Finished loading measurements from DB")
+
+    return {
+        "variables": variables,
+        "timestamps": timestamps,
+        "measurements": measurements,
+    }
+
+
+# TODO: reconsider the design of the endpoint
+@app.get("/measurements", summary="Fetch all measurements matching some criteria")
+def get_measurements(
+    session: SessionDep,
+    since: datetime,
+    until: datetime,
+    variables: Annotated[list[str], Query()],
+    station_ids: Annotated[list[str], Query()] = [],
+) -> Measurements:
+    logger.info("GET /measurements")
+
+    if since >= until:
+        raise HTTPException(
+            status_code=400, detail="`since` date cannot be after `until` date"
+        )
+
+    duration = until - since
+    max_hours = 6
+    if duration >= timedelta(hours=max_hours):
+        raise HTTPException(
+            status_code=400,
+            detail=f"We currently don't allow retrieving data for periods of longer than {max_hours} hours in a single request",
+        )
+
+    # Check validity of requested variables
+    valid_variables = [var.column_name for var in variable_metadata]
+
+    variables_set = set(variables)
+    invalid_variables = variables_set - set(valid_variables)
+    if invalid_variables:
+        raise HTTPException(
+            400,
+            detail=f"Some of the requested variables were not recognized: {', '.join(invalid_variables)}",
+        )
+
+    if not variables_set:
+        raise HTTPException(
+            status_code=400, detail="No valid variables selected for fetch"
+        )
+
+    valid_station_ids = session.execute(select(distinct(Station.id))).scalars().all()
+
+    station_ids_set = set(station_ids)
+    valid_station_ids_set = set(valid_station_ids)
+    invalid_station_ids = station_ids_set - valid_station_ids_set
+    if invalid_station_ids:
+        raise HTTPException(
+            400,
+            detail=f"Some of the requested stations were not recognized: {', '.join(invalid_station_ids)}",
+        )
+
+    if not station_ids_set:
+        # By default, consider all stations
+        station_ids_set = valid_station_ids_set
+
+    metadata = [md for md in variable_metadata if md.column_name in variables_set]
+
+    timestamps: dict[str, list[str]] = {}
+    measurements: dict[str, list[float | None]] = {}
+
+    # TODO: use a single query to load all the measurements at once
+    for md in metadata:
+        table = measurements_tables[md.table_name]
+        variable_name = md.column_name
+
+        if md.table_name.startswith("meteorological"):
+            stmt = (
+                select(table.timestamp, table.__table__.columns[md.column_name])
+                .where(
+                    table.station_id.in_(station_ids_set),
+                    since <= table.timestamp,
+                    table.timestamp >= until,
+                )
+                .order_by(asc(table.timestamp))
+                .limit(20_000)
+            )
+
+        else:
+            subq = (
+                select(
+                    table.timestamp,
+                    table.__table__.columns[md.column_name],
+                    func.row_number()
+                    .over(partition_by=table.station_id, order_by=asc(table.timestamp))
+                    .label("row_number"),
+                )
+                .where(
+                    table.station_id.in_(station_ids_set),
+                    since <= table.timestamp,
+                    table.timestamp <= until,
+                )
+                .order_by(asc(table.timestamp))
+                .subquery()
+            )
+            stmt = (
+                select(subq.c["timestamp"], subq.c[md.column_name])
+                .where(subq.c.row_number % 50 == 0)
+                .limit(20_000)
+            )
+
+        start_time = perf_counter()
+        rows = session.execute(stmt).all()
+        end_time = perf_counter()
+        duration = end_time - start_time
+
+        logger.info(
+            "Querying variable %s took %.3f seconds; retrieved %d rows from DB",
+            variable_name,
+            duration,
+            len(rows),
         )
 
         timestamps[variable_name] = [row[0].isoformat() for row in rows]
