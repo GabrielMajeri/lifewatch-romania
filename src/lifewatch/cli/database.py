@@ -342,9 +342,11 @@ def seed() -> None:
         stations_data = _read_csv_seed_file("stations.csv")
 
         for station_data in stations_data:
-            stmt = insert(Station).values(name=station_data["name"])
+            location = f"POINT({station_data['location_latitude']} {station_data['location_longitude']})"
+            stmt = insert(Station).values(name=station_data["name"], location=location)
             stmt = stmt.on_conflict_do_update(
-                index_elements=["name"], set_={"name": stmt.excluded.name}
+                index_elements=["name"],
+                set_={"name": stmt.excluded.name, "location": stmt.excluded.location},
             )
             result = session.execute(stmt.returning(Station.id))
             row = result.one()

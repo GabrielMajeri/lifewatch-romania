@@ -8,12 +8,14 @@ from os import getenv
 from pathlib import Path
 import re
 from time import perf_counter
-from typing import Annotated, Literal, Sequence, TypedDict, cast
+from typing import Annotated, Literal, Sequence, TypedDict
 
 import coloredlogs
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, Query
+from geoalchemy2.shape import to_shape
 from pydantic import BaseModel
+from shapely import Point
 from sqlalchemy import asc, create_engine, distinct, func, select
 from sqlalchemy.orm import Session
 import uvicorn
@@ -225,7 +227,13 @@ eddy_covariance_variables_entries = [
 ]
 
 
+class GeographicPosition(TypedDict):
+    latitude: float
+    longitude: float
+
+
 class StationInformation(StationEntry):
+    location: GeographicPosition
     variables: list[VariableEntry]
 
 
@@ -255,6 +263,98 @@ def get_station_by_id(session: Session, station_id: int) -> StationEntry:
     return {"id": station_id, "name": name, "kind": kind}
 
 
+class StationSnapshotInfo(TypedDict):
+    id: int
+    name: str
+    location: GeographicPosition
+    count: int
+
+
+class StationsSnapshot(TypedDict):
+    stations: list[StationSnapshotInfo]
+
+
+@app.get(
+    "/stations/snapshot",
+    summary="Retrieve a list of stations with valid data for the given variable and time range",
+)
+def get_stations_snapshot(
+    variable: str,
+    session: SessionDep,
+    since: datetime | None = None,
+    until: datetime | None = None,
+) -> StationsSnapshot:
+    logger.info("GET /stations/snapshot")
+
+    md = [var for var in variable_metadata if var.column_name == variable]
+    if len(md) == 0:
+        raise HTTPException(400, detail=f"Invalid variable name: {variable}")
+
+    md = md[0]
+    table = measurements_tables[md.table_name]
+    table_column = table.__table__.columns[md.column_name]
+
+    if since is None or until is None:
+        # Find the latest timestamp for this variable
+        stmt = select(func.max(table.timestamp)).where(table_column.is_not(None))
+        latest_timestamp = session.execute(stmt).scalar_one_or_none()
+
+        if latest_timestamp is None:
+            raise HTTPException(
+                status_code=404,
+                detail="No measurements found in the database for the given variable (ignoring datetime constraints)",
+            )
+
+        if since is None:
+            since = latest_timestamp - timedelta(hours=12)
+
+        if until is None:
+            until = latest_timestamp
+
+    if since >= until:
+        raise HTTPException(
+            status_code=400, detail="`since` date cannot be after `until` date"
+        )
+
+    duration = until - since
+    max_days = 7
+    if duration >= timedelta(days=max_days):
+        raise HTTPException(
+            status_code=400,
+            detail=f"We currently don't allow retrieving data for periods of longer than {max_days} days in a single request",
+        )
+
+    count_subq = (
+        select(func.count(table.timestamp))
+        .where(
+            table.station_id == Station.id,
+            table_column.is_not(None),
+            since <= table.timestamp,
+            table.timestamp <= until,
+        )
+        .scalar_subquery()
+    )
+
+    stmt = select(Station.id, Station.name, Station.location, count_subq).where(
+        count_subq > 0
+    )
+    results = session.execute(stmt).all()
+
+    stations = []
+    for row in results:
+        location = to_shape(row[2])
+        assert isinstance(location, Point), "Station location is not a single point"
+
+        location = GeographicPosition(latitude=location.x, longitude=location.y)
+
+        stations = [
+            StationSnapshotInfo(id=row[0], name=row[1], location=location, count=row[3])
+            for row in results
+        ]
+
+    return StationsSnapshot(stations=stations)
+
+
 @app.get(
     "/stations/{station_id}",
     summary="Retrieve more information and monitored variables list for a station",
@@ -265,17 +365,38 @@ def get_station_by_id(session: Session, station_id: int) -> StationEntry:
 def get_station_info(station_id: int, session: SessionDep) -> StationInformation:
     logger.info("GET /stations/%d", station_id)
 
-    station = get_station_by_id(session, station_id)
+    stmt = (
+        select(
+            Station.name,
+            Station.location,
+            MeteorologicalStationInfo.code,
+            EddyCovarianceStationInfo.code,
+        )
+        .where(Station.id == station_id)
+        .join(MeteorologicalStationInfo, isouter=True)
+        .join(EddyCovarianceStationInfo, isouter=True)
+    )
+    result = session.execute(stmt).one_or_none()
+    if result is None:
+        raise HTTPException(status_code=404, detail="Station not found")
 
-    kind = station["kind"]
+    name = result[0]
+    location = to_shape(result[1])
+    assert isinstance(location, Point), "Station location is not a single point"
+
+    kind: StationKind | None = None
     variables: list[VariableEntry] = []
-    if kind == StationKind.METEO:
+    if result[2] is not None:
+        kind = StationKind.METEO
         variables = meteo_variables_entries
-    elif kind == StationKind.EDDY_COVARIANCE:
+    elif result[3] is not None:
+        kind = StationKind.EDDY_COVARIANCE
         variables = eddy_covariance_variables_entries
 
-    station = cast(StationInformation, station)
-    station["variables"] = variables
+    location = GeographicPosition(latitude=location.x, longitude=location.y)
+    station = StationInformation(
+        id=station_id, name=name, kind=kind, location=location, variables=variables
+    )
 
     return station
 
@@ -361,11 +482,11 @@ def get_station_measurements(
         )
 
     duration = until - since
-    max_hours = 12
-    if duration >= timedelta(hours=max_hours):
+    max_days = 7
+    if duration >= timedelta(days=max_days):
         raise HTTPException(
             status_code=400,
-            detail=f"We currently don't allow retrieving data for periods of longer than {max_hours} hours in a single request",
+            detail=f"We currently don't allow retrieving data for periods of longer than {max_days} days in a single request",
         )
 
     timestamps: dict[str, list[str]] = {}

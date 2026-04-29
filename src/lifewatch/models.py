@@ -20,6 +20,7 @@ from sqlalchemy.event import listens_for
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 from sqlalchemy.sql.functions import now
+from geoalchemy2 import Geography, WKBElement
 
 
 class Base(DeclarativeBase): ...
@@ -76,6 +77,9 @@ class Station(Base, TimestampsMixin):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(nullable=False)
+    location: Mapped[WKBElement] = mapped_column(
+        Geography(geometry_type="POINT", srid=4326), nullable=False
+    )
 
     eddy_covariance_measurements: Mapped["EddyCovarianceMeasurement"] = relationship(
         back_populates="station"
@@ -232,6 +236,18 @@ class EddyCovarianceMeasurement(Measurement):
     h2o_mass_density: Mapped[float] = mapped_column(Float(6), nullable=False)
     co2_absorptance: Mapped[float] = mapped_column(Float(6), nullable=False)
     h2o_absorptance: Mapped[float] = mapped_column(Float(6), nullable=False)
+
+
+@listens_for(Base.metadata, "before_create")
+def _configure_extensions(target: MetaData, connection: Connection, **kw) -> None:
+    "Creates required database extensions before creating the tables."
+
+    check_first = kw.get("checkfirst", False)
+
+    if check_first:
+        connection.execute(text("CREATE EXTENSION IF NOT EXISTS postgis"))
+    else:
+        connection.execute(text("CREATE EXTENSION postgis"))
 
 
 def _configure_hypertable(
