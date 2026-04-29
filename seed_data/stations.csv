@@ -1,26 +1,26 @@
-name,meteorological_station_code,eddy_covariance_sftp_directory_name,eddy_covariance_station_code
-"Stația 1 - Ilfov, Cornetu",IF-Cor,
-"Stația 2 - Teleorman, Drăgănești-Vlașca, SCDA Teleorman",TR-Drv,
-"Stația 3 - Tulcea, Enisala, INCDD Tulcea",TL-Sar,
-"Stația 4 - Brăila, Mărașu, Insula Mare a Brăilei",BR-Mar,
-"Stația 5 - Brăila, orașul Brăila",BR-Bra,
-"Stația 6 - Tulcea, Malcoci, SCDA Tulcea",TL-Mal,
-"Stația 7 - Călarași, comuna Ștefan cel Mare, ICAS Bărăganu",CL-Scm,
-"Stația 8 - Prahova, comuna Mihăești, ICAS Mihăești",AG-Mih,
-"Stația 9 - Prahova, comuna Berceni, ICAS Ploiești",PH-Ber,
-"Stația 10 - Argeș, Dâmbăvicioara",AG-Dmb,
-"Stația 11 - Mehedinți, Orșova, Stațiunea de cercetări geografice Orșova",MH-Ors,
-"Stația 12 - Giurgiu, comuna Bulbucata, sat Făcău, ABA Argeș",GR-Bul,
-"Stația 13 - Ilfov, Voluntari",IF-Ste,
-"Stația 14 - Dâmbovița, comuna Moroeni",DB-Mor,
-"Stația 15 - Hunedoara, comuna Uricani, cabana Buta",HD-Uri,
-"Stația 16 - Hunedoara, comuna Sântămaria-Orlea, satul Sânpetru",HD-San,
-"Stația 17 - Bihor, Padiș, Centrul de vizitare Padiș",BH-Pad,
-"Stația 18 - Tulcea, Sfântu Gheorghe",TL-Sfg,
-"Stația 19 - Brașov, Centrul de Afaceri, Transfer Tehnologic și Incubator de Afaceri (CATTIA) Brașov",BV-Brv,
-"Stația 20 - Giurgiu, Parcul Național Comana",GR-Com,
-"Brașov",,bv,01014
-"Comana",,com,01005
-Enisala,,enisala,01015
-"Insula Mare a Brăilei",,imb,01016
-"Polizești",,poli,01004
+name,location_latitude,location_longitude,meteorological_station_code,eddy_covariance_sftp_directory_name,eddy_covariance_station_code
+"Stația 1 - Ilfov, Cornetu",44.33392692980534,25.966216187723745,IF-Cor,
+"Stația 2 - Teleorman, Drăgănești-Vlașca, SCDA Teleorman",44.080154,25.551602,TR-Drv,
+"Stația 3 - Tulcea, Enisala, INCDD Tulcea",44.891246,28.830232,TL-Sar,
+"Stația 4 - Brăila, Mărașu, Insula Mare a Brăilei",45.231796,27.982978,BR-Mar,
+"Stația 5 - Brăila, orașul Brăila",45.252871,27.957608,BR-Bra,
+"Stația 6 - Tulcea, Malcoci, SCDA Tulcea",45.102689,28.856291,TL-Mal,
+"Stația 7 - Călarași, comuna Ștefan cel Mare, ICAS Bărăganu",44.427252,27.599430,CL-Scm,
+"Stația 8 - Prahova, comuna Mihăești, ICAS Mihăești",45.103560,25.012356,AG-Mih,
+"Stația 9 - Prahova, comuna Berceni, ICAS Ploiești",44.903608,26.113947,PH-Ber,
+"Stația 10 - Argeș, Dâmbăvicioara",45.495449237824765,25.172844625451496,AG-Dmb,
+"Stația 11 - Mehedinți, Orșova, Stațiunea de cercetări geografice Orșova",44.708624163254065,22.405013320481753,MH-Ors,
+"Stația 12 - Giurgiu, comuna Bulbucata, sat Făcău, ABA Argeș",44.293956,25.834455,GR-Bul,
+"Stația 13 - Ilfov, Voluntari",44.502620,26.187619,IF-Ste,
+"Stația 14 - Dâmbovița, comuna Moroeni",45.285061,25.427925,DB-Mor,
+"Stația 15 - Hunedoara, comuna Uricani, cabana Buta",45.32128904078731,22.9070340606413,HD-Uri,
+"Stația 16 - Hunedoara, comuna Sântămaria-Orlea, satul Sânpetru",45.55512788827278,22.913462151428753,HD-San,
+"Stația 17 - Bihor, Padiș, Centrul de vizitare Padiș",46.602107,22.702133,BH-Pad,
+"Stația 18 - Tulcea, Sfântu Gheorghe",44.891007,29.607773,TL-Sfg,
+"Stația 19 - Brașov, Centrul de Afaceri, Transfer Tehnologic și Incubator de Afaceri (CATTIA) Brașov",45.66916667,25.54469444,BV-Brv,
+"Stația 20 - Giurgiu, Parcul Național Comana",44.16741667,26.12338889,GR-Com,
+"Brașov",45.66916667,25.54469444,,bv,01014
+"Comana",44.16741667,26.12338889,,com,01005
+Enisala,44.891246,28.830232,,enisala,01015
+"Insula Mare a Brăilei",45.231796,27.982978,,imb,01016
+"Polizești",44.848100, 27.809249,,poli,01004
