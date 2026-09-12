@@ -1,12 +1,13 @@
+import datetime
+import logging
+import re
+from collections.abc import Generator, Iterable
 from csv import DictReader
 from dataclasses import dataclass
-import datetime
 from io import BytesIO, TextIOWrapper
-import logging
 from pathlib import Path
-import re
 from time import perf_counter
-from typing import IO, Generator, Iterable
+from typing import IO
 from zipfile import ZipFile
 
 from paramiko import SFTPClient, Transport
@@ -15,7 +16,6 @@ from sqlalchemy.orm import Session
 
 from ..models import EddyCovarianceMeasurement, EddyCovarianceStationInfo
 from ..sftp import SFTPCredentials
-
 from .common import (
     check_file_already_ingested,
     get_or_create_local_server,
@@ -249,7 +249,9 @@ def ingest_eddy_covariance_data_from_sftp_server(
         )
 
         if len(files_with_metadata) == 0:
-            logger.warning("Skipping directory since no files within it match filter criteria")
+            logger.warning(
+                "Skipping directory since no files within it match filter criteria"
+            )
             continue
 
         if sftp_base_path:

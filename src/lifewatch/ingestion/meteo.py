@@ -1,34 +1,32 @@
-from collections.abc import Generator, Iterable
+import logging
+import re
+from collections.abc import Callable, Generator, Iterable
 from csv import DictReader
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from enum import StrEnum
 from functools import partial
 from io import BytesIO, StringIO
-import logging
 from pathlib import Path
-import re
 from time import perf_counter
-from typing import IO, Callable, cast
+from typing import IO, cast
 
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
-from ..ftp import FTPCredentials, Fixed_FTP_TLS
+from ..ftp import Fixed_FTP_TLS, FTPCredentials
 from ..models import (
     Meteorological20SecondMeasurement,
     Meteorological30SecondMeasurement,
     Meteorological60SecondMeasurement,
     MeteorologicalStationInfo,
 )
-
 from .common import (
     check_file_already_ingested,
     get_or_create_local_server,
     get_or_create_server,
     record_ingested_file,
 )
-
 
 logger = logging.getLogger(__name__)
 

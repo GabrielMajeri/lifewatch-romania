@@ -1,14 +1,14 @@
 import datetime
-from pathlib import Path
 import logging
+from pathlib import Path
 from typing import Annotated
 
 import coloredlogs
+import typer
 from dotenv import load_dotenv
 from paramiko import Ed25519Key, PKey
 from rich.console import Console
 from sqlalchemy import create_engine
-import typer
 
 from lifewatch.sftp import SFTPCredentials
 
@@ -18,7 +18,6 @@ from ..ingestion.meteo import (
     MeteorologicalDataFilters,
     MeteorologicalVariablePeriodicity,
 )
-
 from .utils import AliasGroup
 
 # Load environment variables from `.env` file (if it exists)
@@ -58,7 +57,7 @@ def meteo(
         typer.Option(
             help="Periodicities of variables which to ingest. Can be used to filter out certain groups of variables/measurements."
         ),
-    ] = list(MeteorologicalVariablePeriodicity),
+    ] = list(MeteorologicalVariablePeriodicity),  # noqa: B006
     selected_station_codes: Annotated[
         list[str],
         typer.Option(

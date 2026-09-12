@@ -18,36 +18,6 @@ The data platform is based upon a layered architecture:
 
 We recommend using [uv](https://docs.astral.sh/uv/) to manage your Python environment.
 
-### Setting up the database
-
-```shell
-docker compose up
-```
-
-```shell
-lifewatch db create
-lifewatch db seed
-```
-
-### Ingesting data
-
-```shell
-lifewatch ingester meteorological
-lifewatch ingester eddy-covariance
-```
-
-### Starting the back end API server
-
-```shell
-fastapi dev
-```
-
-### Starting the front end web server
-
-```shell
-pnpm run dev
-```
-
 ### Environment variables
 
 Most of the commands are designed to determine which servers to connect to and with which credentials by reading some environment variables. Create a `.env` file at the root of this repo containing the following variables:
@@ -61,6 +31,48 @@ METEO_FTP_HOST=
 METEO_FTP_PORT=
 METEO_FTP_USER=
 METEO_FTP_PASSWORD=
+```
+
+### Setting up the database
+
+To start a local PostgreSQL instance with the TimescaleDB plugin installed, use [Podman](https://podman.io/) or [Docker](https://www.docker.com/):
+
+```shell
+podman compose up
+```
+
+Afterwards, create the database tables and load the required data seed by using the CLI:
+
+```shell
+lifewatch db create
+lifewatch db seed
+```
+
+### Ingesting data
+
+You can start ingesting meteorological & eddy covariance data by running:
+
+```shell
+lifewatch ingester meteorological
+lifewatch ingester eddy-covariance
+```
+
+Use `--help` to view advanced options (e.g. limit ingestion to certain dates, or to certain files/paths)
+
+### Starting the back end API server
+
+Start the FastAPI development server, with code reloading support, by running
+
+```shell
+fastapi dev
+```
+
+### Starting the front end web server
+
+To start the Next.js development server, with hot reload support, run
+
+```shell
+pnpm run dev
 ```
 
 ## Command-line `lifewatch` tool

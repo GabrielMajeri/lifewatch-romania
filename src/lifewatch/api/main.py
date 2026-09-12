@@ -1,16 +1,17 @@
-from collections.abc import AsyncGenerator, Generator
+import logging
+import re
+from collections.abc import AsyncGenerator, Generator, Sequence
 from contextlib import asynccontextmanager
 from csv import DictReader
 from datetime import datetime, timedelta
 from enum import StrEnum
-import logging
 from os import getenv
 from pathlib import Path
-import re
 from time import perf_counter
-from typing import Annotated, Literal, Sequence, TypedDict
+from typing import Annotated, Literal, TypedDict
 
 import coloredlogs
+import uvicorn
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, Query
 from geoalchemy2.shape import to_shape
@@ -18,7 +19,6 @@ from pydantic import BaseModel
 from shapely import Point
 from sqlalchemy import asc, create_engine, distinct, func, select
 from sqlalchemy.orm import Session
-import uvicorn
 
 from lifewatch.models import (
     EddyCovarianceMeasurement,
@@ -69,7 +69,7 @@ app = FastAPI(
 )
 
 
-def get_session() -> Generator[Session, None, None]:
+def get_session() -> Generator[Session]:
     "Constructs and yields a new SQLAlchemy `Session`."
     with Session(engine) as session:
         yield session

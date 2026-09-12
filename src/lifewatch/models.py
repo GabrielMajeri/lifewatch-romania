@@ -1,6 +1,7 @@
 from datetime import datetime
 from typing import final
 
+from geoalchemy2 import Geography, WKBElement
 from sqlalchemy import (
     Connection,
     Constraint,
@@ -20,7 +21,6 @@ from sqlalchemy.event import listens_for
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 from sqlalchemy.sql.functions import now
-from geoalchemy2 import Geography, WKBElement
 
 
 class Base(DeclarativeBase): ...
@@ -42,7 +42,7 @@ class Server(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     hostname: Mapped[str] = mapped_column(nullable=False)
 
-    files: Mapped["IngestedFile"] = relationship(back_populates="server")
+    files: Mapped[IngestedFile] = relationship(back_populates="server")
 
     __table_args__: tuple[Constraint] = (
         UniqueConstraint("hostname", name="servers_name_unique"),
@@ -81,18 +81,18 @@ class Station(Base, TimestampsMixin):
         Geography(geometry_type="POINT", srid=4326), nullable=False
     )
 
-    eddy_covariance_measurements: Mapped["EddyCovarianceMeasurement"] = relationship(
+    eddy_covariance_measurements: Mapped[EddyCovarianceMeasurement] = relationship(
         back_populates="station"
     )
-    meteorological_20_second_measurements: Mapped[
-        "Meteorological20SecondMeasurement"
-    ] = relationship(back_populates="station")
-    meteorological_30_second_measurements: Mapped[
-        "Meteorological30SecondMeasurement"
-    ] = relationship(back_populates="station")
-    meteorological_60_second_measurements: Mapped[
-        "Meteorological60SecondMeasurement"
-    ] = relationship(back_populates="station")
+    meteorological_20_second_measurements: Mapped[Meteorological20SecondMeasurement] = (
+        relationship(back_populates="station")
+    )
+    meteorological_30_second_measurements: Mapped[Meteorological30SecondMeasurement] = (
+        relationship(back_populates="station")
+    )
+    meteorological_60_second_measurements: Mapped[Meteorological60SecondMeasurement] = (
+        relationship(back_populates="station")
+    )
 
     __table_args__: tuple[Constraint] = (
         UniqueConstraint("name", name="stations_name_unique"),

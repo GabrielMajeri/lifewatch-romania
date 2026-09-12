@@ -5,7 +5,7 @@ from pathlib import Path
 from textwrap import dedent
 from typing import Any
 
-from alembic import command
+import typer
 from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
@@ -15,7 +15,8 @@ from rich.prompt import Confirm
 from sqlalchemy import create_engine, func, select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import DeclarativeBase, MappedColumn, Session, mapped_column
-import typer
+
+from alembic import command
 
 from ..models import Base, EddyCovarianceStationInfo, MeteorologicalStationInfo, Station
 
@@ -150,10 +151,9 @@ def downgrade(
     console.print("[dim]This may drop tables or columns and result in data loss.[/dim]")
 
     # 2. Confirmation prompt
-    if not yes:
-        if not Confirm.ask("Are you sure you want to proceed?"):
-            console.print("[yellow]Operation cancelled.[/yellow]")
-            raise typer.Exit()
+    if not yes and not Confirm.ask("Are you sure you want to proceed?"):
+        console.print("[yellow]Operation cancelled.[/yellow]")
+        raise typer.Exit()
 
     console.print("[bold blue]Downgrading...[/bold blue]")
 
