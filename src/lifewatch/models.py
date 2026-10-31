@@ -153,6 +153,14 @@ class Measurement(Base):
     )
 
 
+# The meteorological variables come from:
+# - a Huskeflux SR30
+# - a Gill Instruments WindSonic 75,
+# - several Thies Clima sensors
+# - Campbell Scientific CS109 and CS125
+# - a Meter Group TEROS 10
+
+
 @final
 class Meteorological20SecondMeasurement(Measurement):
     __tablename__ = "meteorological_20s_measurements"
@@ -204,6 +212,10 @@ class Meteorological60SecondMeasurement(Measurement):
     measurement_quality_sr50a: Mapped[int] = mapped_column(SmallInteger, nullable=False)
 
 
+# The eddy covariance measurements are based on this ICOS standard:
+# https://fileshare.icos-cp.eu/s/dP7pRPGLnLd6jwA
+
+
 @final
 class EddyCovarianceMeasurement(Measurement):
     __tablename__ = "eddy_covariance_measurements"
@@ -212,30 +224,78 @@ class EddyCovarianceMeasurement(Measurement):
         back_populates="eddy_covariance_measurements"
     )
 
+    # Nanoseconds
     nanoseconds: Mapped[int] = mapped_column(nullable=False, default=0)
 
+    # Sequence Number
+    sequence_number: Mapped[int] = mapped_column(nullable=False)
+    # Diagnostic Value
+    diagnostic_value: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    # Diagnostic Value 2
+    diagnostic_value_2: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    # DS Diagnostic Value
+    ds_diagnostic_value: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+
+    # CO2 (mmol/m^3)
     co2_concentration: Mapped[float] = mapped_column(Float(6), nullable=False)
+    # H2O (mmol/m^3)
     h2o_concentration: Mapped[float] = mapped_column(Float(6), nullable=False)
+
+    # CO2 Sample
     co2_raw_power_in_sample_wavelength: Mapped[float] = mapped_column(
         Float(6), nullable=False
     )
+    # H2O Sample
     h2o_raw_power_in_sample_wavelength: Mapped[float] = mapped_column(
         Float(6), nullable=False
     )
+
+    # CO2 Reference
     co2_raw_power_in_reference_wavelength: Mapped[float] = mapped_column(
         Float(6), nullable=False
     )
+    # H2O Reference
     h2o_raw_power_in_reference_wavelength: Mapped[float] = mapped_column(
         Float(6), nullable=False
     )
+
+    # CO2 (umol/mol)
     co2_molar_fraction: Mapped[float] = mapped_column(Float(6), nullable=False)
+    # H2O (mmol/mol)
     h2o_molar_fraction: Mapped[float] = mapped_column(Float(6), nullable=False)
+
     co2_dry_mole_fraction: Mapped[float] = mapped_column(Float(6), nullable=False)
     h2o_dry_mole_fraction: Mapped[float] = mapped_column(Float(6), nullable=False)
+
+    # CO2 (mg/m^3)
     co2_mass_density: Mapped[float] = mapped_column(Float(6), nullable=False)
+    # H2O (g/m^3)
     h2o_mass_density: Mapped[float] = mapped_column(Float(6), nullable=False)
+
+    # CO2 Absorptance
     co2_absorptance: Mapped[float] = mapped_column(Float(6), nullable=False)
+    # H2O Absorptance
     h2o_absorptance: Mapped[float] = mapped_column(Float(6), nullable=False)
+
+    # CO2 Signal Strength
+    co2_signal_strength: Mapped[float] = mapped_column(Float(6), nullable=False)
+
+    # Temperature (C)
+    temperature: Mapped[float] = mapped_column(Float(6), nullable=False)
+    # Pressure (kPa)
+    pressure: Mapped[float] = mapped_column(Float(6), nullable=False)
+    # Dew Point (C)
+    dew_point: Mapped[float] = mapped_column(Float(6), nullable=False)
+
+    # Cooler Voltage (V)
+    cooler_voltage: Mapped[float] = mapped_column(Float(6), nullable=False)
+    # Chopper Cooler Voltage (V)
+    chopper_cooler_voltage: Mapped[float] = mapped_column(Float(6), nullable=False)
+
+    # Vin SmartFlux (V)
+    vin_smart_flux: Mapped[float] = mapped_column(Float(6), nullable=False)
+
+    anemometer_diagnostics: Mapped[int] = mapped_column(SmallInteger, nullable=False)
 
 
 @listens_for(Base.metadata, "before_create")

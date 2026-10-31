@@ -496,7 +496,12 @@ def _ingest_ghg_file(file: IO[bytes], session: Session, station_id: int):
             if timezone != "Etc/GMT-2" and timezone != "Etc/GMT-3":
                 raise Exception(f"Unsupported time zone: {timezone}")
 
-            zone = datetime.timezone(datetime.timedelta(hours=+2), timezone)
+            if timezone == "Etc/GMT-2":
+                offset = datetime.timedelta(hours=+2)
+            elif timezone == "Etc/GMT-3":
+                offset = datetime.timedelta(hours=+3)
+
+            zone = datetime.timezone(offset, timezone)
 
             # Read the actual data as a tab-separated values file
             csv_reader = DictReader(text_file, delimiter="\t", strict=True)

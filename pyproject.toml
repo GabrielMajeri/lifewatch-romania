@@ -27,3 +27,8 @@ entrypoint = "lifewatch.api.main:app"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/lifewatch"]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.17.3",
+]
