@@ -1,15 +1,45 @@
 column_name,table_column_name
-CO2 (mmol/m^3),co2_concentration
-H2O (mmol/m^3),h2o_concentration
-CO2 Sample,co2_raw_power_in_sample_wavelength
-H2O Sample,h2o_raw_power_in_sample_wavelength
-CO2 Reference,co2_raw_power_in_reference_wavelength
-H2O Reference,h2o_raw_power_in_reference_wavelength
-CO2 (umol/mol),co2_molar_fraction
-H2O (mmol/mol),h2o_molar_fraction
-CO2 (umol/mol),co2_dry_mole_fraction
-H2O (mmol/mol),h2o_dry_mole_fraction
-CO2 (mg/m^3),co2_mass_density
-H2O (g/m^3),h2o_mass_density
+Sequence Number,sequence_number
+Diagnostic Value,diagnostic_value
+Diagnostic Value 2,diagnostic_value_2
+DS Diagnostic Value,ds_diagnostic_value
 CO2 Absorptance,co2_absorptance
 H2O Absorptance,h2o_absorptance
+CO2 (mmol/m^3),co2_concentration
+CO2 (mg/m^3),co2_mass_density
+H2O (mmol/m^3),h2o_concentration
+H2O (g/m^3),h2o_mass_density
+Temperature (C),temperature
+Pressure (kPa),pressure
+Cooler Voltage (V),cooler_voltage
+Chopper Cooler Voltage (V),chopper_cooler_voltage
+Vin SmartFlux (V),vin_smart_flux
+CO2 (umol/mol),co2_molar_fraction
+H2O (mmol/mol),h2o_molar_fraction
+Dew Point (C),dew_point
+CO2 Signal Strength,co2_signal_strength
+H2O Sample,h2o_raw_power_in_sample_wavelength
+H2O Reference,h2o_raw_power_in_reference_wavelength
+CO2 Sample,co2_raw_power_in_sample_wavelength
+CO2 Reference,co2_raw_power_in_reference_wavelength
+Vin DSI (V),vin_dsi
+U (m/s),wind_u
+V (m/s),wind_v
+W (m/s),wind_w
+T (C),sonic_temperature
+Anemometer Diagnostics,anemometer_diagnostics
+CHK,chk
+CH4 (umol/mol),ch4_molar_fraction
+CH4 (mmol/m^3),ch4_molar_density
+CH4 Temperature,ch4_temperature
+CH4 Pressure,ch4_pressure
+CH4 Signal Strength,ch4_signal_strength
+CH4 Auxiliary Input 1,ch4_auxiliary_input_1
+CH4 Auxiliary Input 2,ch4_auxiliary_input_2
+CH4 Auxiliary Input 3,ch4_auxiliary_input_3
+CH4 Auxiliary Input 4,ch4_auxiliary_input_4
+CH4 Thermocouple Input 1,ch4_thermocouple_input_1
+CH4 Thermocouple Input 2,ch4_thermocouple_input_2
+CH4 Thermocouple Input 3,ch4_thermocouple_input_3
+CH4 Diagnostic Value,ch4_diagnostic_value
+CH4 Drop Rate (%),ch4_drop_rate

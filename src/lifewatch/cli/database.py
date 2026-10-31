@@ -338,6 +338,18 @@ def seed() -> None:
 
     engine = create_engine(DATABASE_URL)
     with Session(engine) as session:
+        # Import stations metadata
+        stations_metadata_data = _read_csv_seed_file("stations_metadata.csv")
+        stations_metadata: dict[int, dict[str, str]] = {}
+        for metadata_entry in stations_metadata_data:
+            index = int(metadata_entry["station_index"])
+            metadata_key = str(metadata_entry["key"])
+            metadata_value = str(metadata_entry["value"])
+            if index in stations_metadata:
+                stations_metadata[index][metadata_key] = metadata_value
+            else:
+                stations_metadata[index] = {metadata_key: metadata_value}
+
         # Import stations
         stations_data = _read_csv_seed_file("stations.csv")
 
@@ -369,13 +381,25 @@ def seed() -> None:
             eddy_covariance_station_code = station_data["eddy_covariance_station_code"]
 
             if eddy_covariance_sftp_directory_name or eddy_covariance_station_code:
+                station_index = int(station_data["station_index"])
+                station_meta = stations_metadata.get(station_index, {})
+                has_ch4 = station_meta.get("has_ch4", "false").lower() in (
+                    "true",
+                    "1",
+                    "yes",
+                )
                 stmt = insert(EddyCovarianceStationInfo).values(
                     station_id=station_id,
                     sftp_directory_name=eddy_covariance_sftp_directory_name,
                     code=eddy_covariance_station_code,
+                    has_ch4=has_ch4,
                 )
                 stmt = stmt.on_conflict_do_update(
-                    index_elements=["code"], set_={"code": stmt.excluded.code}
+                    index_elements=["code"],
+                    set_={
+                        "code": stmt.excluded.code,
+                        "has_ch4": stmt.excluded.has_ch4,
+                    },
                 )
                 session.execute(stmt)
 

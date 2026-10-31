@@ -3,6 +3,7 @@ from typing import final
 
 from geoalchemy2 import Geography, WKBElement
 from sqlalchemy import (
+    BigInteger,
     Connection,
     Constraint,
     DateTime,
@@ -84,6 +85,9 @@ class Station(Base, TimestampsMixin):
     eddy_covariance_measurements: Mapped[EddyCovarianceMeasurement] = relationship(
         back_populates="station"
     )
+    eddy_covariance_ch4_measurements: Mapped[EddyCovarianceCh4Measurement] = (
+        relationship(back_populates="station")
+    )
     meteorological_20_second_measurements: Mapped[Meteorological20SecondMeasurement] = (
         relationship(back_populates="station")
     )
@@ -133,6 +137,9 @@ class EddyCovarianceStationInfo(Base, TimestampsMixin):
 
     code: Mapped[str] = mapped_column()
     "Unique code identifying this station's data files."
+
+    has_ch4: Mapped[bool] = mapped_column(default=False)
+    "Indicates whether this station is equipped with a LI-7700 CH4 analyzer."
 
     __table_args__: tuple[Constraint, Constraint] = (
         UniqueConstraint(
@@ -228,74 +235,127 @@ class EddyCovarianceMeasurement(Measurement):
     nanoseconds: Mapped[int] = mapped_column(nullable=False, default=0)
 
     # Sequence Number
-    sequence_number: Mapped[int] = mapped_column(nullable=False)
-    # Diagnostic Value
+    sequence_number: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    # Diagnostic Value (LI-7500DS status)
     diagnostic_value: Mapped[int] = mapped_column(SmallInteger, nullable=False)
     # Diagnostic Value 2
     diagnostic_value_2: Mapped[int] = mapped_column(SmallInteger, nullable=False)
-    # DS Diagnostic Value
+    # DS Diagnostic Value (DSI / SmartFlux interface)
     ds_diagnostic_value: Mapped[int] = mapped_column(SmallInteger, nullable=False)
 
     # CO2 (mmol/m^3)
-    co2_concentration: Mapped[float] = mapped_column(Float(6), nullable=False)
+    co2_concentration: Mapped[float | None] = mapped_column(Float(6), nullable=True)
     # H2O (mmol/m^3)
-    h2o_concentration: Mapped[float] = mapped_column(Float(6), nullable=False)
+    h2o_concentration: Mapped[float | None] = mapped_column(Float(6), nullable=True)
 
     # CO2 Sample
-    co2_raw_power_in_sample_wavelength: Mapped[float] = mapped_column(
-        Float(6), nullable=False
+    co2_raw_power_in_sample_wavelength: Mapped[float | None] = mapped_column(
+        Float(6), nullable=True
     )
     # H2O Sample
-    h2o_raw_power_in_sample_wavelength: Mapped[float] = mapped_column(
-        Float(6), nullable=False
+    h2o_raw_power_in_sample_wavelength: Mapped[float | None] = mapped_column(
+        Float(6), nullable=True
     )
 
     # CO2 Reference
-    co2_raw_power_in_reference_wavelength: Mapped[float] = mapped_column(
-        Float(6), nullable=False
+    co2_raw_power_in_reference_wavelength: Mapped[float | None] = mapped_column(
+        Float(6), nullable=True
     )
     # H2O Reference
-    h2o_raw_power_in_reference_wavelength: Mapped[float] = mapped_column(
-        Float(6), nullable=False
+    h2o_raw_power_in_reference_wavelength: Mapped[float | None] = mapped_column(
+        Float(6), nullable=True
     )
 
     # CO2 (umol/mol)
-    co2_molar_fraction: Mapped[float] = mapped_column(Float(6), nullable=False)
+    co2_molar_fraction: Mapped[float | None] = mapped_column(Float(6), nullable=True)
     # H2O (mmol/mol)
-    h2o_molar_fraction: Mapped[float] = mapped_column(Float(6), nullable=False)
-
-    co2_dry_mole_fraction: Mapped[float] = mapped_column(Float(6), nullable=False)
-    h2o_dry_mole_fraction: Mapped[float] = mapped_column(Float(6), nullable=False)
+    h2o_molar_fraction: Mapped[float | None] = mapped_column(Float(6), nullable=True)
 
     # CO2 (mg/m^3)
-    co2_mass_density: Mapped[float] = mapped_column(Float(6), nullable=False)
+    co2_mass_density: Mapped[float | None] = mapped_column(Float(6), nullable=True)
     # H2O (g/m^3)
-    h2o_mass_density: Mapped[float] = mapped_column(Float(6), nullable=False)
+    h2o_mass_density: Mapped[float | None] = mapped_column(Float(6), nullable=True)
 
     # CO2 Absorptance
-    co2_absorptance: Mapped[float] = mapped_column(Float(6), nullable=False)
+    co2_absorptance: Mapped[float | None] = mapped_column(Float(6), nullable=True)
     # H2O Absorptance
-    h2o_absorptance: Mapped[float] = mapped_column(Float(6), nullable=False)
+    h2o_absorptance: Mapped[float | None] = mapped_column(Float(6), nullable=True)
 
     # CO2 Signal Strength
-    co2_signal_strength: Mapped[float] = mapped_column(Float(6), nullable=False)
+    co2_signal_strength: Mapped[float | None] = mapped_column(Float(6), nullable=True)
 
     # Temperature (C)
-    temperature: Mapped[float] = mapped_column(Float(6), nullable=False)
+    temperature: Mapped[float | None] = mapped_column(Float(6), nullable=True)
     # Pressure (kPa)
-    pressure: Mapped[float] = mapped_column(Float(6), nullable=False)
+    pressure: Mapped[float | None] = mapped_column(Float(6), nullable=True)
     # Dew Point (C)
-    dew_point: Mapped[float] = mapped_column(Float(6), nullable=False)
+    dew_point: Mapped[float | None] = mapped_column(Float(6), nullable=True)
 
     # Cooler Voltage (V)
-    cooler_voltage: Mapped[float] = mapped_column(Float(6), nullable=False)
+    cooler_voltage: Mapped[float | None] = mapped_column(Float(6), nullable=True)
     # Chopper Cooler Voltage (V)
-    chopper_cooler_voltage: Mapped[float] = mapped_column(Float(6), nullable=False)
+    chopper_cooler_voltage: Mapped[float | None] = mapped_column(Float(6), nullable=True)
 
     # Vin SmartFlux (V)
-    vin_smart_flux: Mapped[float] = mapped_column(Float(6), nullable=False)
+    vin_smart_flux: Mapped[float | None] = mapped_column(Float(6), nullable=True)
+    # Vin DSI (V)
+    vin_dsi: Mapped[float | None] = mapped_column(Float(6), nullable=True)
 
+    # Wind components (m/s)
+    wind_u: Mapped[float | None] = mapped_column(Float(6), nullable=True)
+    wind_v: Mapped[float | None] = mapped_column(Float(6), nullable=True)
+    wind_w: Mapped[float | None] = mapped_column(Float(6), nullable=True)
+
+    # Sonic Temperature (C)
+    sonic_temperature: Mapped[float | None] = mapped_column(Float(6), nullable=True)
+
+    # Anemometer Diagnostics
     anemometer_diagnostics: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+
+    # Data checksum
+    chk: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+
+
+@final
+class EddyCovarianceCh4Measurement(Measurement):
+    __tablename__ = "eddy_covariance_ch4_measurements"
+
+    station: Mapped[Station] = relationship(
+        back_populates="eddy_covariance_ch4_measurements"
+    )
+
+    # Nanoseconds
+    nanoseconds: Mapped[int] = mapped_column(nullable=False, default=0)
+
+    # CH4 (umol/mol) - Methane molar fraction
+    ch4_molar_fraction: Mapped[float | None] = mapped_column(Float(6), nullable=True)
+    # CH4 (mmol/m^3) - Methane concentration density
+    ch4_molar_density: Mapped[float | None] = mapped_column(Float(6), nullable=True)
+
+    # CH4 Temperature (C) - Optical block temperature
+    ch4_temperature: Mapped[float | None] = mapped_column(Float(6), nullable=True)
+    # CH4 Pressure (kPa) - Optical path pressure
+    ch4_pressure: Mapped[float | None] = mapped_column(Float(6), nullable=True)
+
+    # CH4 Signal Strength (RSSI)
+    ch4_signal_strength: Mapped[float | None] = mapped_column(Float(6), nullable=True)
+
+    # CH4 Auxiliary Inputs (V)
+    ch4_auxiliary_input_1: Mapped[float | None] = mapped_column(Float(6), nullable=True)
+    ch4_auxiliary_input_2: Mapped[float | None] = mapped_column(Float(6), nullable=True)
+    ch4_auxiliary_input_3: Mapped[float | None] = mapped_column(Float(6), nullable=True)
+    ch4_auxiliary_input_4: Mapped[float | None] = mapped_column(Float(6), nullable=True)
+
+    # CH4 Thermocouple Inputs (C)
+    ch4_thermocouple_input_1: Mapped[float | None] = mapped_column(Float(6), nullable=True)
+    ch4_thermocouple_input_2: Mapped[float | None] = mapped_column(Float(6), nullable=True)
+    ch4_thermocouple_input_3: Mapped[float | None] = mapped_column(Float(6), nullable=True)
+
+    # CH4 Diagnostic Value
+    ch4_diagnostic_value: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    # CH4 Drop Rate (%)
+    ch4_drop_rate: Mapped[float | None] = mapped_column(Float(6), nullable=True)
 
 
 @listens_for(Base.metadata, "before_create")
@@ -362,6 +422,7 @@ def _configure_hypertables(target: MetaData, connection: Connection, **kw) -> No
         Meteorological30SecondMeasurement.__tablename__,
         Meteorological60SecondMeasurement.__tablename__,
         EddyCovarianceMeasurement.__tablename__,
+        EddyCovarianceCh4Measurement.__tablename__,
     )
 
     for table_name in measurement_tables:

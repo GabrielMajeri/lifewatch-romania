@@ -1,5 +1,6 @@
 import datetime
 import logging
+import math
 import re
 from collections.abc import Generator, Iterable
 from csv import DictReader
@@ -7,14 +8,18 @@ from dataclasses import dataclass
 from io import BytesIO, TextIOWrapper
 from pathlib import Path
 from time import perf_counter
-from typing import IO
+from typing import IO, TextIO
 from zipfile import ZipFile
 
 from paramiko import SFTPClient, Transport
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
-from ..models import EddyCovarianceMeasurement, EddyCovarianceStationInfo
+from ..models import (
+    EddyCovarianceCh4Measurement,
+    EddyCovarianceMeasurement,
+    EddyCovarianceStationInfo,
+)
 from ..sftp import SFTPCredentials
 from .common import (
     check_file_already_ingested,
@@ -161,8 +166,12 @@ def _ingest_eddy_covariance_data_from_local_file(
 ) -> None:
     station_id = station_code_mapping.get_id(metadata.station_code)
 
-    with open(file_path, "rb") as file:
-        _ingest_ghg_file(file, session, station_id)
+    if file_path.suffix == ".data":
+        with open(file_path, "r", encoding="ASCII") as text_file:
+            _ingest_eddy_covariance_data_stream(text_file, session, station_id)
+    else:
+        with open(file_path, "rb") as file:
+            _ingest_ghg_file(file, session, station_id)
 
 
 def ingest_eddy_covariance_data_from_sftp_server(
@@ -372,7 +381,7 @@ _GHG_FILE_TIMESTAMP_PATTERN = r"(?P<year>\d{4})-(?P<month>\d{2})-(?P<day>\d{2})T
 _GHG_FILE_STATION_CODE_PATTERN = r"(?P<station_code>\d+)"
 
 _GHG_FILE_NAME_PATTERN = re.compile(
-    f"^{_GHG_FILE_TIMESTAMP_PATTERN}_smart3-{_GHG_FILE_STATION_CODE_PATTERN}\\.ghg$"
+    f"^{_GHG_FILE_TIMESTAMP_PATTERN}_smart3-{_GHG_FILE_STATION_CODE_PATTERN}(?:\\.ghg|\\.data|\\.ghg\\.zip)$"
 )
 
 
@@ -442,149 +451,244 @@ def _filter_files(
         yield file_name, meta
 
 
+EC_BASE_COLUMNS: list[tuple[str, str, type]] = [
+    ("Sequence Number", "sequence_number", int),
+    ("Diagnostic Value", "diagnostic_value", int),
+    ("Diagnostic Value 2", "diagnostic_value_2", int),
+    ("DS Diagnostic Value", "ds_diagnostic_value", int),
+    ("CO2 Absorptance", "co2_absorptance", float),
+    ("H2O Absorptance", "h2o_absorptance", float),
+    ("CO2 (mmol/m^3)", "co2_concentration", float),
+    ("CO2 (mg/m^3)", "co2_mass_density", float),
+    ("H2O (mmol/m^3)", "h2o_concentration", float),
+    ("H2O (g/m^3)", "h2o_mass_density", float),
+    ("Temperature (C)", "temperature", float),
+    ("Pressure (kPa)", "pressure", float),
+    ("Cooler Voltage (V)", "cooler_voltage", float),
+    ("Chopper Cooler Voltage (V)", "chopper_cooler_voltage", float),
+    ("Vin SmartFlux (V)", "vin_smart_flux", float),
+    ("CO2 (umol/mol)", "co2_molar_fraction", float),
+    ("H2O (mmol/mol)", "h2o_molar_fraction", float),
+    ("Dew Point (C)", "dew_point", float),
+    ("CO2 Signal Strength", "co2_signal_strength", float),
+    ("H2O Sample", "h2o_raw_power_in_sample_wavelength", float),
+    ("H2O Reference", "h2o_raw_power_in_reference_wavelength", float),
+    ("CO2 Sample", "co2_raw_power_in_sample_wavelength", float),
+    ("CO2 Reference", "co2_raw_power_in_reference_wavelength", float),
+    ("Vin DSI (V)", "vin_dsi", float),
+    ("U (m/s)", "wind_u", float),
+    ("V (m/s)", "wind_v", float),
+    ("W (m/s)", "wind_w", float),
+    ("T (C)", "sonic_temperature", float),
+    ("Anemometer Diagnostics", "anemometer_diagnostics", int),
+    ("CHK", "chk", int),
+]
+
+CH4_COLUMNS: list[tuple[str, str, type]] = [
+    ("CH4 (umol/mol)", "ch4_molar_fraction", float),
+    ("CH4 (mmol/m^3)", "ch4_molar_density", float),
+    ("CH4 Temperature", "ch4_temperature", float),
+    ("CH4 Pressure", "ch4_pressure", float),
+    ("CH4 Signal Strength", "ch4_signal_strength", float),
+    ("CH4 Auxiliary Input 1", "ch4_auxiliary_input_1", float),
+    ("CH4 Auxiliary Input 2", "ch4_auxiliary_input_2", float),
+    ("CH4 Auxiliary Input 3", "ch4_auxiliary_input_3", float),
+    ("CH4 Auxiliary Input 4", "ch4_auxiliary_input_4", float),
+    ("CH4 Thermocouple Input 1", "ch4_thermocouple_input_1", float),
+    ("CH4 Thermocouple Input 2", "ch4_thermocouple_input_2", float),
+    ("CH4 Thermocouple Input 3", "ch4_thermocouple_input_3", float),
+    ("CH4 Diagnostic Value", "ch4_diagnostic_value", int),
+    ("CH4 Drop Rate (%)", "ch4_drop_rate", float),
+]
+
+MISSING_VALUES = {"-9999", "-9999.0", "nan", "-nan", "null", "none", ""}
+
+
+def _parse_val(
+    val: str | None, col_type: type, allow_null: bool = True
+) -> int | float | None:
+    if val is None:
+        return None
+    val_str = val.strip()
+    if val_str.lower() in MISSING_VALUES:
+        return None if allow_null else 0
+    try:
+        if col_type is int:
+            return int(float(val_str))
+        else:
+            f = float(val_str)
+            if math.isnan(f) or math.isinf(f):
+                return None
+            return f
+    except ValueError:
+        return None
+
+
 def _ingest_ghg_file(file: IO[bytes], session: Session, station_id: int):
     """Reads sensor measurements from a GHG file and stores them into the database."""
 
     logger.debug("Opening GHG file as Zip archive")
 
-    # The .ghg files are actually Zip archives
     with ZipFile(file) as ghg_file:
         data_file_name = None
 
-        # console.print("Zip file contents:")
         for name in ghg_file.namelist():
-            # console.print(" ", name)
-
-            if EDDY_COVARIANCE_DATA_FILE_NAME_REGEXP.match(name):
+            if (
+                EDDY_COVARIANCE_DATA_FILE_NAME_REGEXP.match(name)
+                and "biomet" not in name
+            ):
                 data_file_name = name
 
         if data_file_name is None:
             raise Exception("Could not find data file in GHG file")
 
-        # console.print("Data file name:", data_file_name)
-
         logger.debug("Opening data file within GHG file")
 
-        # Open the data file
         with ghg_file.open(data_file_name) as data_file:
             text_file = TextIOWrapper(data_file, encoding="ASCII")
+            _ingest_eddy_covariance_data_stream(text_file, session, station_id)
 
-            # Read the file header
-            model = text_file.readline()
-            serial_number = text_file.readline()
-            instrument_name = text_file.readline()
-            _file_type = text_file.readline()
-            _software_version = text_file.readline()
-            timestamp = text_file.readline()
-            timezone = text_file.readline()
 
-            assert model.startswith("Model:")
-            model = model.replace("Model:", "").strip()
-            # console.print("Model:", model)
+def _ingest_eddy_covariance_data_stream(
+    text_file: TextIO, session: Session, station_id: int
+) -> None:
+    # Read the file header
+    model = text_file.readline()
+    serial_number = text_file.readline()
+    instrument_name = text_file.readline()
+    _file_type = text_file.readline()
+    _software_version = text_file.readline()
+    _timestamp_line = text_file.readline()
+    timezone_line = text_file.readline()
 
-            assert instrument_name.startswith("Instrument:")
-            instrument_name = instrument_name.replace("Instrument:", "").strip()
+    assert model.startswith("Model:")
+    assert instrument_name.startswith("Instrument:")
+    assert serial_number.startswith("SN:")
+    assert timezone_line.startswith("Timezone:")
 
-            assert serial_number.startswith("SN:")
-            serial_number = serial_number.replace("SN:", "").strip()
+    timezone = timezone_line.replace("Timezone:", "").strip()
 
-            assert timezone.startswith("Timezone:")
-            timezone = timezone.replace("Timezone:", "").strip()
-            # console.print("Timezone:", timezone)
+    # We only accept Romania's standard time or summer time
+    if timezone != "Etc/GMT-2" and timezone != "Etc/GMT-3":
+        raise Exception(f"Unsupported time zone: {timezone}")
 
-            # We only accept Romania's standard time or summer time
-            if timezone != "Etc/GMT-2" and timezone != "Etc/GMT-3":
-                raise Exception(f"Unsupported time zone: {timezone}")
+    if timezone == "Etc/GMT-2":
+        offset = datetime.timedelta(hours=+2)
+    elif timezone == "Etc/GMT-3":
+        offset = datetime.timedelta(hours=+3)
 
-            if timezone == "Etc/GMT-2":
-                offset = datetime.timedelta(hours=+2)
-            elif timezone == "Etc/GMT-3":
-                offset = datetime.timedelta(hours=+3)
+    zone = datetime.timezone(offset, timezone)
 
-            zone = datetime.timezone(offset, timezone)
+    # Read the actual data as a tab-separated values file
+    csv_reader = DictReader(text_file, delimiter="\t", strict=True)
+    if csv_reader.fieldnames is None:
+        raise Exception(
+            "Could not read variable names (column headers) from data file"
+        )
 
-            # Read the actual data as a tab-separated values file
-            csv_reader = DictReader(text_file, delimiter="\t", strict=True)
-            if csv_reader.fieldnames is None:
-                raise Exception(
-                    "Could not read variable names (column headers) from data file"
+    has_ch4 = "CH4 Seconds" in csv_reader.fieldnames
+
+    start_time = perf_counter()
+
+    logger.info("Using PostgreSQL's `COPY FROM` command to bulk insert data")
+
+    # Assemble list of columns for base EC measurements
+    columns = [
+        EddyCovarianceMeasurement.station_id.key,
+        EddyCovarianceMeasurement.timestamp.key,
+        EddyCovarianceMeasurement.nanoseconds.key,
+    ] + [tbl_col for _, tbl_col, _ in EC_BASE_COLUMNS]
+
+    ch4_rows: list[tuple] = []
+    ec_measurements_counter = 0
+
+    cursor = session.connection().connection.cursor()
+    with cursor.copy(
+        f"COPY {EddyCovarianceMeasurement.__tablename__} ({', '.join(columns)}) FROM STDIN"
+    ) as copy:
+        for row in csv_reader:
+            sec = int(row["Seconds"])
+            nanoseconds = int(row["Nanoseconds"])
+            microseconds = round(nanoseconds / 1e3)
+
+            timestamp = datetime.datetime.fromtimestamp(sec, tz=zone)
+            timestamp += datetime.timedelta(microseconds=microseconds)
+
+            # Extract base EC values
+            ec_values = [
+                _parse_val(
+                    row.get(file_col),
+                    col_type,
+                    allow_null=(
+                        file_col
+                        not in (
+                            "Sequence Number",
+                            "Diagnostic Value",
+                            "Diagnostic Value 2",
+                            "DS Diagnostic Value",
+                            "Anemometer Diagnostics",
+                            "CHK",
+                        )
+                    ),
                 )
-
-            global ghg_file_column_name_to_table_column_name_mapping
-            column_name_mapping = ghg_file_column_name_to_table_column_name_mapping
-            if column_name_mapping is None:
-                ghg_file_column_name_to_table_column_name_mapping = (
-                    _load_ghg_file_column_name_to_table_column_name_mapping()
-                )
-                column_name_mapping = ghg_file_column_name_to_table_column_name_mapping
-
-            start_time = perf_counter()
-
-            logger.info("Using PostgreSQL's `COPY FROM` command to bulk insert data")
-
-            # Assemble list of columns
-            columns = [
-                EddyCovarianceMeasurement.station_id.key,
-                EddyCovarianceMeasurement.timestamp.key,
-                EddyCovarianceMeasurement.nanoseconds.key,
-            ]
-            columns += [
-                table_column_name for _, table_column_name in column_name_mapping
+                for file_col, _, col_type in EC_BASE_COLUMNS
             ]
 
-            cursor = session.connection().connection.cursor()
-            with cursor.copy(
-                f"COPY {EddyCovarianceMeasurement.__tablename__} ({', '.join(columns)}) FROM STDIN"
-            ) as copy:
-                measurements_counter = 0
-                values_counter = 0
-                for row in csv_reader:
-                    timestamp = int(row["Seconds"])
-                    nanoseconds = int(row["Nanoseconds"])
-                    microseconds = round(nanoseconds / 1e3)
+            copy.write_row((station_id, timestamp, nanoseconds, *ec_values))
+            ec_measurements_counter += 1
 
-                    timestamp = datetime.datetime.fromtimestamp(timestamp, tz=zone)
-                    timestamp += datetime.timedelta(microseconds=microseconds)
-                    # print("Timestamp:", timestamp)
-
-                    # Extract relevant column values from this row
-                    measurement_values: list[str] = []
-                    for column_name, _ in column_name_mapping:
-                        value = row[column_name]
-                        measurement_values.append(value)
-
-                    copy.write_row(
-                        (station_id, timestamp, nanoseconds, *measurement_values)
+            # Check if this row has active CH4 measurement
+            if has_ch4:
+                ch4_sec_raw = row.get("CH4 Seconds", "").strip()
+                if ch4_sec_raw and ch4_sec_raw not in ("-9999", "-9999.0"):
+                    ch4_sec = int(ch4_sec_raw)
+                    ch4_nano_raw = row.get("CH4 Nanoseconds", "0").strip()
+                    ch4_nano = (
+                        int(ch4_nano_raw)
+                        if ch4_nano_raw and ch4_nano_raw not in ("-9999", "-9999.0")
+                        else nanoseconds
                     )
+                    ch4_micro = round(ch4_nano / 1e3)
+                    ch4_timestamp = datetime.datetime.fromtimestamp(
+                        ch4_sec, tz=zone
+                    ) + datetime.timedelta(microseconds=ch4_micro)
 
-                    values_counter += len(column_name_mapping)
-                    measurements_counter += 1
+                    ch4_values = [
+                        _parse_val(
+                            row.get(file_col),
+                            col_type,
+                            allow_null=(file_col != "CH4 Diagnostic Value"),
+                        )
+                        for file_col, _, col_type in CH4_COLUMNS
+                    ]
+                    ch4_rows.append((station_id, ch4_timestamp, ch4_nano, *ch4_values))
 
-            cursor.close()
-            session.commit()
+    # Bulk insert CH4 measurements if any were collected
+    ch4_measurements_counter = len(ch4_rows)
+    if ch4_rows:
+        logger.info(
+            f"Bulk inserting {ch4_measurements_counter} CH4 measurement rows into {EddyCovarianceCh4Measurement.__tablename__}"
+        )
+        ch4_columns = [
+            EddyCovarianceCh4Measurement.station_id.key,
+            EddyCovarianceCh4Measurement.timestamp.key,
+            EddyCovarianceCh4Measurement.nanoseconds.key,
+        ] + [tbl_col for _, tbl_col, _ in CH4_COLUMNS]
 
-            end_time = perf_counter()
+        with cursor.copy(
+            f"COPY {EddyCovarianceCh4Measurement.__tablename__} ({', '.join(ch4_columns)}) FROM STDIN"
+        ) as copy_ch4:
+            for r in ch4_rows:
+                copy_ch4.write_row(r)
 
-            logger.info(
-                f"Succesfully imported {measurements_counter} rows, each with {len(column_name_mapping)} variables, for a total of {values_counter} measurements"
-            )
+    cursor.close()
+    session.commit()
 
-            duration = end_time - start_time
-            logger.info(f"Took {duration:.2g} seconds")
+    end_time = perf_counter()
+    duration = end_time - start_time
+    logger.info(
+        f"Successfully imported {ec_measurements_counter} base EC rows and {ch4_measurements_counter} CH4 rows in {duration:.2g} seconds"
+    )
 
 
 EDDY_COVARIANCE_DATA_FILE_NAME_REGEXP = re.compile(r"^.*_smart3-\d+\.data$")
-
-ghg_file_column_name_to_table_column_name_mapping = None
-
-
-def _load_ghg_file_column_name_to_table_column_name_mapping() -> list[tuple[str, str]]:
-    mapping_file_path = Path(__file__).parent / "ghg_file_columns_mapping.csv"
-
-    mappings: list[tuple[str, str]] = []
-    with open(mapping_file_path, newline="") as file:
-        csv_reader = DictReader(file, delimiter=",")
-        for row in csv_reader:
-            mappings.append((row["column_name"], row["table_column_name"]))
-
-    return mappings

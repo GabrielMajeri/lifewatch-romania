@@ -21,6 +21,7 @@ from sqlalchemy import asc, create_engine, distinct, func, select
 from sqlalchemy.orm import Session
 
 from lifewatch.models import (
+    EddyCovarianceCh4Measurement,
     EddyCovarianceMeasurement,
     EddyCovarianceStationInfo,
     Measurement,
@@ -138,6 +139,7 @@ class StationEntry(TypedDict):
     id: int
     name: str
     kind: StationKind | None
+    has_ch4: bool | None
 
 
 @app.get("/stations", summary="Retrieve the list of stations")
@@ -150,6 +152,7 @@ def get_stations(session: SessionDep) -> Sequence[StationEntry]:
             Station.name,
             MeteorologicalStationInfo.code,
             EddyCovarianceStationInfo.code,
+            EddyCovarianceStationInfo.has_ch4,
         )
         .join(MeteorologicalStationInfo, isouter=True)
         .join(EddyCovarianceStationInfo, isouter=True)
@@ -159,12 +162,16 @@ def get_stations(session: SessionDep) -> Sequence[StationEntry]:
     stations: list[StationEntry] = []
     for row in results:
         kind = None
+        has_ch4 = None
         if row[2] is not None:
             kind = StationKind.METEO
         elif row[3] is not None:
             kind = StationKind.EDDY_COVARIANCE
+            has_ch4 = bool(row[4])
 
-        stations.append({"id": row[0], "name": row[1], "kind": kind})
+        stations.append(
+            {"id": row[0], "name": row[1], "kind": kind, "has_ch4": has_ch4}
+        )
 
     return stations
 
@@ -188,8 +195,19 @@ meteo_variables = [
     for md in variable_metadata
     if meteo_variable_table_name_pattern.match(md.table_name)
 ]
-eddy_covariance_variables = [
+base_eddy_covariance_variables = [
     md for md in variable_metadata if md.table_name == "eddy_covariance_measurements"
+]
+ch4_eddy_covariance_variables = [
+    md
+    for md in variable_metadata
+    if md.table_name == "eddy_covariance_ch4_measurements"
+]
+eddy_covariance_variables = [
+    md
+    for md in variable_metadata
+    if md.table_name
+    in ("eddy_covariance_measurements", "eddy_covariance_ch4_measurements")
 ]
 
 variable_ids = [meta.column_name for meta in variable_metadata]
@@ -202,6 +220,7 @@ measurements_tables: dict[str, type[Measurement]] = {
     "meteorological_30s_measurements": Meteorological30SecondMeasurement,
     "meteorological_60s_measurements": Meteorological60SecondMeasurement,
     "eddy_covariance_measurements": EddyCovarianceMeasurement,
+    "eddy_covariance_ch4_measurements": EddyCovarianceCh4Measurement,
 }
 
 
@@ -222,6 +241,12 @@ def variable_entry_from_metadata(metadata: VariableMetadata) -> VariableEntry:
 
 
 meteo_variables_entries = [variable_entry_from_metadata(md) for md in meteo_variables]
+base_eddy_covariance_variables_entries = [
+    variable_entry_from_metadata(md) for md in base_eddy_covariance_variables
+]
+ch4_eddy_covariance_variables_entries = [
+    variable_entry_from_metadata(md) for md in ch4_eddy_covariance_variables
+]
 eddy_covariance_variables_entries = [
     variable_entry_from_metadata(md) for md in eddy_covariance_variables
 ]
@@ -243,6 +268,7 @@ def get_station_by_id(session: Session, station_id: int) -> StationEntry:
             Station.name,
             MeteorologicalStationInfo.code,
             EddyCovarianceStationInfo.code,
+            EddyCovarianceStationInfo.has_ch4,
         )
         .where(Station.id == station_id)
         .join(MeteorologicalStationInfo, isouter=True)
@@ -255,12 +281,14 @@ def get_station_by_id(session: Session, station_id: int) -> StationEntry:
     name = result[0]
 
     kind = None
+    has_ch4 = None
     if result[1] is not None:
         kind = StationKind.METEO
     elif result[2] is not None:
         kind = StationKind.EDDY_COVARIANCE
+        has_ch4 = bool(result[3])
 
-    return {"id": station_id, "name": name, "kind": kind}
+    return {"id": station_id, "name": name, "kind": kind, "has_ch4": has_ch4}
 
 
 class StationSnapshotInfo(TypedDict):
@@ -371,6 +399,7 @@ def get_station_info(station_id: int, session: SessionDep) -> StationInformation
             Station.location,
             MeteorologicalStationInfo.code,
             EddyCovarianceStationInfo.code,
+            EddyCovarianceStationInfo.has_ch4,
         )
         .where(Station.id == station_id)
         .join(MeteorologicalStationInfo, isouter=True)
@@ -385,17 +414,27 @@ def get_station_info(station_id: int, session: SessionDep) -> StationInformation
     assert isinstance(location, Point), "Station location is not a single point"
 
     kind: StationKind | None = None
+    has_ch4: bool | None = None
     variables: list[VariableEntry] = []
     if result[2] is not None:
         kind = StationKind.METEO
         variables = meteo_variables_entries
     elif result[3] is not None:
         kind = StationKind.EDDY_COVARIANCE
-        variables = eddy_covariance_variables_entries
+        has_ch4 = bool(result[4])
+        if has_ch4:
+            variables = eddy_covariance_variables_entries
+        else:
+            variables = base_eddy_covariance_variables_entries
 
     location = GeographicPosition(latitude=location.x, longitude=location.y)
     station = StationInformation(
-        id=station_id, name=name, kind=kind, location=location, variables=variables
+        id=station_id,
+        name=name,
+        kind=kind,
+        has_ch4=has_ch4,
+        location=location,
+        variables=variables,
     )
 
     return station
@@ -432,7 +471,12 @@ def get_station_measurements(
     if station["kind"] == StationKind.METEO:
         valid_variables = [var.column_name for var in meteo_variables]
     elif station["kind"] == StationKind.EDDY_COVARIANCE:
-        valid_variables = [var.column_name for var in eddy_covariance_variables]
+        if station.get("has_ch4"):
+            valid_variables = [var.column_name for var in eddy_covariance_variables]
+        else:
+            valid_variables = [
+                var.column_name for var in base_eddy_covariance_variables
+            ]
     else:
         raise NotImplementedError(f"unsupported station kind: '{station['kind']}'")
 
@@ -456,13 +500,15 @@ def get_station_measurements(
 
     metadata = [md for md in variable_metadata if md.column_name in variables_set]
 
-    md = metadata[0]
-    table = measurements_tables[md.table_name]
-    stmt = select(func.max(table.timestamp)).where(
-        table.station_id == station_id,
-        table.__table__.columns[md.column_name].is_not(None),
-    )
-    latest_timestamp = session.execute(stmt).scalar_one_or_none()
+    # Find the latest timestamp across the tables of the requested variables
+    tables_to_check = {measurements_tables[md.table_name] for md in metadata}
+    latest_timestamp = None
+    for tbl in tables_to_check:
+        ts = session.execute(
+            select(func.max(tbl.timestamp)).where(tbl.station_id == station_id)
+        ).scalar_one_or_none()
+        if ts is not None and (latest_timestamp is None or ts > latest_timestamp):
+            latest_timestamp = ts
 
     if latest_timestamp is None:
         raise HTTPException(
