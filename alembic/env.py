@@ -1,6 +1,7 @@
 from logging.config import fileConfig
 from os import getenv
 
+import sqlalchemy as sa
 from dotenv import load_dotenv
 from sqlalchemy import engine_from_config, pool
 
@@ -26,6 +27,30 @@ DATABASE_URL = getenv(
 config.set_main_option("sqlalchemy.url", DATABASE_URL)
 
 
+def include_object(object, name, type_, reflected, compare_to):
+    if type_ == "table":
+        if name in ("spatial_ref_sys", "alembic_version"):
+            return False
+    elif type_ == "index":
+        if name and name.endswith("_timestamp_idx"):
+            # Automatically managed by TimescaleDB hypertables
+            return False
+    return True
+
+
+def compare_type(
+    _context, _inspected_column, _metadata_column, inspected_type, metadata_type
+):
+    if (
+        isinstance(metadata_type, sa.Float)
+        and metadata_type.precision == 6
+        and isinstance(inspected_type, sa.REAL)
+    ):
+        return False
+
+    return None
+
+
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode.
 
@@ -43,6 +68,8 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        include_object=include_object,
+        compare_type=compare_type,
     )
 
     with context.begin_transaction():
@@ -63,7 +90,12 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
-        context.configure(connection=connection, target_metadata=target_metadata)
+        context.configure(
+            connection=connection,
+            target_metadata=target_metadata,
+            include_object=include_object,
+            compare_type=compare_type,
+        )
 
         with context.begin_transaction():
             context.run_migrations()
