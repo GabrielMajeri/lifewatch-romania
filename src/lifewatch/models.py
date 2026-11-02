@@ -194,14 +194,14 @@ class Meteorological30SecondMeasurement(Measurement):
     )
 
     wind_direction: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
-    wind_speed: Mapped[float] = mapped_column(Float, nullable=False)
+    wind_speed: Mapped[float] = mapped_column(Float, nullable=True)
     current_weather_code: Mapped[int] = mapped_column(SmallInteger, nullable=False)
     visibility: Mapped[int] = mapped_column(Integer, nullable=False)
     particles_count: Mapped[int] = mapped_column(SmallInteger, nullable=False)
     intensity: Mapped[float] = mapped_column(Float(6), nullable=False)
     air_temp_cs125: Mapped[float] = mapped_column(Float(6), nullable=False)
     air_pressure: Mapped[float] = mapped_column(Float(6), nullable=False)
-    air_humidity: Mapped[float] = mapped_column(Float(6), nullable=False)
+    air_humidity: Mapped[float] = mapped_column(Float(6), nullable=True)
     air_temperature: Mapped[float] = mapped_column(Float(6), nullable=False)
     data_logger_voltage: Mapped[float] = mapped_column(Float(6), nullable=False)
 
@@ -214,7 +214,7 @@ class Meteorological60SecondMeasurement(Measurement):
         back_populates="meteorological_60_second_measurements"
     )
 
-    snow_depth: Mapped[float] = mapped_column(Float(6), nullable=False)
+    snow_depth: Mapped[float] = mapped_column(Float(6), nullable=True)
     total_rain: Mapped[float] = mapped_column(Float(6), nullable=False)
     soil_temperature: Mapped[float] = mapped_column(Float(6), nullable=False)
     soil_humidity: Mapped[float] = mapped_column(Float(6), nullable=False)
