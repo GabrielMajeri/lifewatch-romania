@@ -1,5 +1,6 @@
 import datetime
 import logging
+import os
 from pathlib import Path
 from typing import Annotated
 
@@ -30,6 +31,8 @@ logger = logging.getLogger(__name__)
 
 app = typer.Typer(cls=AliasGroup)
 
+DEFAULT_WORKERS = min(os.cpu_count() or 1, 8)
+
 
 @app.command(
     "meteorological | meteo | m",
@@ -59,16 +62,24 @@ def meteo(
         ),
     ] = list(MeteorologicalVariablePeriodicity),  # noqa: B006
     selected_station_codes: Annotated[
-        list[str],
+        list[str] | None,
         typer.Option(
             "--station",
             "--station-code",
             "--station-id",
             help="Short identification code of weather stations for which to retrieve data. If not set, will fetch measurements from all available stations. Example value: `AG-Dmb`.",
         ),
-    ] = [],
+    ] = None,
     from_date_str: Annotated[str, typer.Option("--from", "--since")] = "",
     until_date_str: Annotated[str, typer.Option("--until")] = "",
+    workers: Annotated[
+        int,
+        typer.Option(
+            "--workers",
+            "-j",
+            help="Number of concurrent worker processes to use for data ingestion.",
+        ),
+    ] = DEFAULT_WORKERS,
     debug: Annotated[
         bool,
         typer.Option(
@@ -89,9 +100,11 @@ def meteo(
     else:
         until_date = None
 
+    station_codes = selected_station_codes or []
+
     filters = MeteorologicalDataFilters(
         periodicities=selected_periodicities,
-        station_codes=selected_station_codes,
+        station_codes=station_codes,
         from_date=from_date,
         until_date=until_date,
     )
@@ -102,14 +115,22 @@ def meteo(
     engine = create_engine(database_url)
 
     if file_or_directory_path is not None:
-        logger.info("Path provided, running in local mode")
+        logger.info("Path provided, running in local mode with %d workers", workers)
 
         from ..ingestion.meteo import ingest_meteo_data_from_local_path
 
-        ingest_meteo_data_from_local_path(file_or_directory_path, filters, engine)
+        ingest_meteo_data_from_local_path(
+            file_or_directory_path,
+            filters,
+            engine,
+            database_url=database_url,
+            workers=workers,
+        )
 
     else:
-        logger.info("Path not provided, running in FTP (remote) mode")
+        logger.info(
+            "Path not provided, running in FTP (remote) mode with %d workers", workers
+        )
 
         from ..ingestion.meteo import ingest_meteo_data_from_ftp_server
 
@@ -131,7 +152,13 @@ def meteo(
 
         ftp_credentials = FTPCredentials(ftp_host, ftp_port, ftp_user, ftp_password)
 
-        ingest_meteo_data_from_ftp_server(ftp_credentials, filters, engine)
+        ingest_meteo_data_from_ftp_server(
+            ftp_credentials,
+            filters,
+            engine,
+            database_url=database_url,
+            workers=workers,
+        )
 
 
 @app.command(
@@ -163,16 +190,24 @@ def eddy_covariance(
         typer.Option(envvar="DATABASE_URL"),
     ] = "postgresql+psycopg://dev:pwd@localhost:5432/lifewatch",
     selected_station_codes: Annotated[
-        list[str],
+        list[str] | None,
         typer.Option(
             "--station",
             "--station-code",
             "--station-id",
             help="Short identification code of eddy covariance stations for which to retrieve data. If not set, will fetch measurements from all available stations. Example value: `01014` (for Brașov station).",
         ),
-    ] = [],
+    ] = None,
     from_timestamp_str: Annotated[str, typer.Option("--from", "--since")] = "",
     until_timestamp_str: Annotated[str, typer.Option("--until")] = "",
+    workers: Annotated[
+        int,
+        typer.Option(
+            "--workers",
+            "-j",
+            help="Number of concurrent worker processes to use for data ingestion.",
+        ),
+    ] = DEFAULT_WORKERS,
     debug: Annotated[
         bool,
         typer.Option(
@@ -193,8 +228,10 @@ def eddy_covariance(
     else:
         until_timestamp = None
 
+    station_codes = selected_station_codes or []
+
     filters = EddyCovarianceDataFilters(
-        station_codes=selected_station_codes,
+        station_codes=station_codes,
         from_timestamp=from_timestamp,
         until_timestamp=until_timestamp,
     )
@@ -205,18 +242,24 @@ def eddy_covariance(
     engine = create_engine(database_url)
 
     if file_or_directory_path is not None:
-        logger.info("Path provided, running in local mode")
+        logger.info("Path provided, running in local mode with %d workers", workers)
 
         from ..ingestion.eddy_covariance import (
             ingest_eddy_covariance_data_from_local_path,
         )
 
         ingest_eddy_covariance_data_from_local_path(
-            file_or_directory_path, filters, engine
+            file_or_directory_path,
+            filters,
+            engine,
+            database_url=database_url,
+            workers=workers,
         )
 
     else:
-        logger.info("Path not provided, running in FTP (remote) mode")
+        logger.info(
+            "Path not provided, running in FTP (remote) mode with %d workers", workers
+        )
 
         from ..ingestion.eddy_covariance import (
             ingest_eddy_covariance_data_from_sftp_server,
@@ -252,5 +295,10 @@ def eddy_covariance(
         )
 
         ingest_eddy_covariance_data_from_sftp_server(
-            sftp_credentials, filters, engine, sftp_base_path
+            sftp_credentials,
+            filters,
+            engine,
+            sftp_base_path=sftp_base_path,
+            database_url=database_url,
+            workers=workers,
         )
