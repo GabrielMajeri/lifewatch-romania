@@ -179,6 +179,8 @@ class Meteorological20SecondMeasurement(Measurement):
     irradiance: Mapped[float] = mapped_column(Float(6), nullable=False)
     unit_temperature_sr30: Mapped[float] = mapped_column(Float(6), nullable=False)
     error_code_sr30: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+
+    # Not all stations are equipped with these additional irradiance sensors
     licor_irradiance: Mapped[float] = mapped_column(Float(6), nullable=True)
     cuv5_irradiance: Mapped[float] = mapped_column(Float(6), nullable=True)
 
@@ -294,7 +296,9 @@ class EddyCovarianceMeasurement(Measurement):
     # Cooler Voltage (V)
     cooler_voltage: Mapped[float | None] = mapped_column(Float(6), nullable=True)
     # Chopper Cooler Voltage (V)
-    chopper_cooler_voltage: Mapped[float | None] = mapped_column(Float(6), nullable=True)
+    chopper_cooler_voltage: Mapped[float | None] = mapped_column(
+        Float(6), nullable=True
+    )
 
     # Vin SmartFlux (V)
     vin_smart_flux: Mapped[float | None] = mapped_column(Float(6), nullable=True)
@@ -347,9 +351,15 @@ class EddyCovarianceCh4Measurement(Measurement):
     ch4_auxiliary_input_4: Mapped[float | None] = mapped_column(Float(6), nullable=True)
 
     # CH4 Thermocouple Inputs (C)
-    ch4_thermocouple_input_1: Mapped[float | None] = mapped_column(Float(6), nullable=True)
-    ch4_thermocouple_input_2: Mapped[float | None] = mapped_column(Float(6), nullable=True)
-    ch4_thermocouple_input_3: Mapped[float | None] = mapped_column(Float(6), nullable=True)
+    ch4_thermocouple_input_1: Mapped[float | None] = mapped_column(
+        Float(6), nullable=True
+    )
+    ch4_thermocouple_input_2: Mapped[float | None] = mapped_column(
+        Float(6), nullable=True
+    )
+    ch4_thermocouple_input_3: Mapped[float | None] = mapped_column(
+        Float(6), nullable=True
+    )
 
     # CH4 Diagnostic Value
     ch4_diagnostic_value: Mapped[int] = mapped_column(Integer, nullable=False)

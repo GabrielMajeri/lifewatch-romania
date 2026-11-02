@@ -1,5 +1,3 @@
-ignoredBuiltDependencies:
-  - sharp
-  - unrs-resolver
-onlyBuiltDependencies:
-  - msw
+allowBuilds:
+  sharp: true
+  unrs-resolver: true

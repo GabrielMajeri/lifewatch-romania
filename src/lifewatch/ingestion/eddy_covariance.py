@@ -152,7 +152,7 @@ def ingest_eddy_covariance_data_from_local_path(
                     file_path, metadata, session, station_code_mapping
                 )
 
-                record_ingested_file(session, server_id, path)
+                record_ingested_file(session, server_id, file_path)
 
     else:
         raise Exception("Path is neither a regular file, nor a directory")
@@ -524,8 +524,8 @@ def _parse_val(
         return None
 
 
-def _ingest_ghg_file(file: IO[bytes], session: Session, station_id: int):
-    """Reads sensor measurements from a GHG file and stores them into the database."""
+def _ingest_ghg_file(file: IO[bytes], session: Session, station_id: int) -> None:
+    "Reads sensor measurements from a GHG file and stores them in the database."
 
     logger.debug("Opening GHG file as Zip archive")
 
@@ -582,9 +582,7 @@ def _ingest_eddy_covariance_data_stream(
     # Read the actual data as a tab-separated values file
     csv_reader = DictReader(text_file, delimiter="\t", strict=True)
     if csv_reader.fieldnames is None:
-        raise Exception(
-            "Could not read variable names (column headers) from data file"
-        )
+        raise Exception("Could not read variable names (column headers) from data file")
 
     has_ch4 = "CH4 Seconds" in csv_reader.fieldnames
 
